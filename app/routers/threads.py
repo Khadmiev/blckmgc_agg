@@ -18,6 +18,7 @@ from app.schemas.message import (
     ThreadDetailResponse,
 )
 from app.schemas.thread import ThreadCreate, ThreadListItem, ThreadResponse, ThreadUpdate
+from app.services.thread_service import generate_thread_title
 
 router = APIRouter()
 
@@ -145,6 +146,17 @@ async def get_thread(
             for m in messages
         ],
     )
+
+
+@router.post("/{thread_id}/generate-title")
+async def generate_title(
+    thread_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    thread = await _get_user_thread(thread_id, user, db)
+    title = await generate_thread_title(db, thread)
+    return {"title": title}
 
 
 @router.patch("/{thread_id}", response_model=ThreadResponse)

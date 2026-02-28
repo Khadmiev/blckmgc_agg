@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import logging
 import mimetypes
 import uuid
@@ -22,13 +23,6 @@ from app.storage.base import StorageBackend
 
 MAX_HISTORY_MESSAGES = 50
 
-VISION_CAPABLE = {
-    "gpt-4o", "gpt-4o-mini", "gpt-4-turbo",
-    "claude-sonnet-4-20250514", "claude-haiku-4-20250414",
-    "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.5-pro-preview-06-05",
-}
-
-
 async def load_thread_history(
     db: AsyncSession, thread: Thread, include_media: bool = True,
 ) -> list[dict]:
@@ -45,7 +39,14 @@ async def load_thread_history(
 
     formatted: list[dict] = []
     for msg in messages:
-        if include_media and msg.attachments and thread.llm_name in VISION_CAPABLE:
+        if not include_media or not msg.attachments:
+            formatted.append({"role": msg.role, "content": msg.content or ""})
+            continue
+
+        has_images = any(a.media_type == "image" for a in msg.attachments)
+        has_text_files = any(a.text_content for a in msg.attachments)
+
+        if has_images or has_text_files:
             content_parts: list[dict] = []
             if msg.content:
                 content_parts.append({"type": "text", "text": msg.content})
@@ -55,10 +56,29 @@ async def load_thread_history(
                         "type": "image_url",
                         "image_url": {"url": f"attachment://{att.id}"},
                     })
+                elif att.text_content:
+                    content_parts.append({
+                        "type": "text",
+                        "text": f"[File: {att.mime_type}]\n{att.text_content}",
+                    })
             formatted.append({"role": msg.role, "content": content_parts or msg.content})
         else:
             formatted.append({"role": msg.role, "content": msg.content or ""})
     return formatted
+
+
+def _flatten_text_only_parts(messages: list[dict]) -> list[dict]:
+    """If a message content is a list but contains only text parts, merge into a single string."""
+    result: list[dict] = []
+    for msg in messages:
+        if isinstance(msg["content"], list):
+            has_non_text = any(p.get("type") != "text" for p in msg["content"])
+            if not has_non_text:
+                merged = "\n\n".join(p.get("text", "") for p in msg["content"])
+                result.append({"role": msg["role"], "content": merged})
+                continue
+        result.append(msg)
+    return result
 
 
 async def build_llm_messages(
@@ -67,11 +87,17 @@ async def build_llm_messages(
     user_content: str | list[dict],
     storage: StorageBackend,
 ) -> list[dict]:
-    """Build the full message list: history + current user message, resolving image attachments to base64."""
+    """Build the full message list from thread history.
+
+    The current user message must already be persisted (via save_user_message)
+    before calling this, so it is included in the history query.
+    """
     history = await load_thread_history(db, thread)
-    history.append({"role": "user", "content": user_content})
-    if thread.llm_name in VISION_CAPABLE:
-        history = await _resolve_attachments(db, history, storage)
+    history = await _resolve_attachments(db, history, storage)
+    history = _flatten_text_only_parts(history)
+    logger.debug("LLM message count: %d, last msg role: %s, content len: %d",
+                 len(history), history[-1]["role"] if history else "?",
+                 len(str(history[-1].get("content", ""))) if history else 0)
     return history
 
 
@@ -143,11 +169,12 @@ def _build_media_counts(attachments: list[MediaAttachment] | None) -> MediaCount
 async def stream_llm_response(
     db: AsyncSession,
     thread: Thread,
-    user_content: str | list[dict],
     storage: StorageBackend,
     attachments: list[MediaAttachment] | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Stream LLM response chunks as dicts suitable for SSE serialization.
+
+    The current user message must already be persisted before calling this.
 
     Event types:
     - {"event": "chunk", "data": "<text>"}
@@ -156,7 +183,7 @@ async def stream_llm_response(
     """
     try:
         provider = get_provider(thread.llm_name)
-        messages = await build_llm_messages(db, thread, user_content, storage)
+        messages = await build_llm_messages(db, thread, "", storage)
 
         full_response: list[str] = []
         usage: TokenUsage | None = None
@@ -236,6 +263,151 @@ async def save_user_message(
     return msg
 
 
+MAX_EXTRACTED_CHARS = 100_000
+
+_TEXT_MIME_TYPES = {
+    "application/json", "application/xml", "application/javascript",
+    "application/x-yaml", "application/csv", "application/sql",
+    "application/x-sh", "application/x-python", "application/rtf",
+}
+
+_DOCX_TYPES = {
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+}
+_XLSX_TYPES = {
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+}
+_PPTX_TYPES = {
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.ms-powerpoint",
+}
+
+
+def _extract_text(data: bytes, content_type: str, filename: str) -> str | None:
+    """Extract readable text from a file. Returns None if not applicable."""
+    logger.info("_extract_text: filename=%s, content_type=%s, size=%d bytes",
+                filename, content_type, len(data))
+    lower = filename.lower()
+
+    if content_type == "application/pdf" or lower.endswith(".pdf"):
+        result = _extract_pdf(data, filename)
+        logger.info("PDF extraction result: %s", f"{len(result)} chars" if result else "None")
+        return result
+
+    if content_type in _DOCX_TYPES or lower.endswith(".docx"):
+        return _extract_docx(data, filename)
+
+    if content_type in _XLSX_TYPES or lower.endswith((".xlsx", ".xls")):
+        return _extract_xlsx(data, filename)
+
+    if content_type in _PPTX_TYPES or lower.endswith(".pptx"):
+        return _extract_pptx(data, filename)
+
+    if lower.endswith(".csv") or content_type == "text/csv":
+        return _extract_plain(data)
+
+    if content_type.startswith("text/") or content_type in _TEXT_MIME_TYPES:
+        return _extract_plain(data)
+
+    if lower.endswith((".txt", ".md", ".log", ".ini", ".cfg", ".toml",
+                       ".yml", ".yaml", ".json", ".xml", ".html", ".htm",
+                       ".css", ".js", ".ts", ".py", ".java", ".c", ".cpp",
+                       ".h", ".cs", ".go", ".rs", ".rb", ".php", ".sh",
+                       ".bat", ".ps1", ".sql", ".r", ".m", ".swift")):
+        return _extract_plain(data)
+
+    return None
+
+
+def _extract_plain(data: bytes) -> str | None:
+    try:
+        text = data.decode("utf-8", errors="replace").strip()
+        return text[:MAX_EXTRACTED_CHARS] if text else None
+    except Exception:
+        return None
+
+
+def _extract_pdf(data: bytes, filename: str) -> str | None:
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(data))
+        logger.info("PDF has %d pages", len(reader.pages))
+        pages = [p.extract_text() for p in reader.pages if p.extract_text()]
+        combined = "\n\n".join(pages).strip()
+        return combined[:MAX_EXTRACTED_CHARS] if combined else None
+    except Exception:
+        logger.exception("PDF text extraction failed for %s", filename)
+        return None
+
+
+def _extract_docx(data: bytes, filename: str) -> str | None:
+    try:
+        from docx import Document
+        doc = Document(io.BytesIO(data))
+        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        for table in doc.tables:
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                if cells:
+                    paragraphs.append(" | ".join(cells))
+        combined = "\n".join(paragraphs).strip()
+        return combined[:MAX_EXTRACTED_CHARS] if combined else None
+    except Exception:
+        logger.warning("DOCX text extraction failed for %s", filename)
+        return None
+
+
+def _extract_xlsx(data: bytes, filename: str) -> str | None:
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        sections: list[str] = []
+        for sheet in wb.worksheets:
+            rows: list[str] = []
+            for row in sheet.iter_rows(values_only=True):
+                cells = [str(c) if c is not None else "" for c in row]
+                if any(cells):
+                    rows.append(" | ".join(cells))
+            if rows:
+                header = f"[Sheet: {sheet.title}]"
+                sections.append(header + "\n" + "\n".join(rows))
+        wb.close()
+        combined = "\n\n".join(sections).strip()
+        return combined[:MAX_EXTRACTED_CHARS] if combined else None
+    except Exception:
+        logger.warning("XLSX text extraction failed for %s", filename)
+        return None
+
+
+def _extract_pptx(data: bytes, filename: str) -> str | None:
+    try:
+        from pptx import Presentation
+        prs = Presentation(io.BytesIO(data))
+        slides: list[str] = []
+        for i, slide in enumerate(prs.slides, 1):
+            texts: list[str] = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        text = para.text.strip()
+                        if text:
+                            texts.append(text)
+                if shape.has_table:
+                    for row in shape.table.rows:
+                        cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                        if cells:
+                            texts.append(" | ".join(cells))
+            if texts:
+                slides.append(f"[Slide {i}]\n" + "\n".join(texts))
+        combined = "\n\n".join(slides).strip()
+        return combined[:MAX_EXTRACTED_CHARS] if combined else None
+    except Exception:
+        logger.warning("PPTX text extraction failed for %s", filename)
+        return None
+
+
 async def process_uploaded_files(
     files_data: list[tuple[str, bytes, str]],
     storage: StorageBackend,
@@ -262,12 +434,20 @@ async def process_uploaded_files(
             except Exception:
                 pass
 
+        text_content = None
+        if media_type == "file":
+            text_content = _extract_text(data, content_type, original_name)
+            logger.info("File %s: media_type=%s, text_content=%s",
+                        original_name, media_type,
+                        f"{len(text_content)} chars" if text_content else "None")
+
         att = MediaAttachment(
             media_type=media_type,
             file_path=key,
             mime_type=content_type,
             file_size=len(data),
             thumbnail_path=thumbnail_key,
+            text_content=text_content,
         )
         attachments.append(att)
 

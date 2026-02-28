@@ -50,7 +50,6 @@ async def send_message(
     storage = get_storage_backend()
 
     attachments = []
-    user_content: str | list[dict] = prompt
 
     if files:
         files_data = []
@@ -59,20 +58,10 @@ async def send_message(
             files_data.append((f.filename or "upload", data, f.content_type or "application/octet-stream"))
         attachments = await process_uploaded_files(files_data, storage, thread.id)
 
-        if any(a.media_type == "image" for a in attachments):
-            content_parts: list[dict] = [{"type": "text", "text": prompt}]
-            for att in attachments:
-                if att.media_type == "image":
-                    content_parts.append({
-                        "type": "image_url",
-                        "image_url": {"url": f"attachment://{att.id}"},
-                    })
-            user_content = content_parts
-
     user_msg = await save_user_message(db, thread, prompt, attachments)
 
     async def event_generator():
-        async for event in stream_llm_response(db, thread, user_content, storage, attachments=attachments):
+        async for event in stream_llm_response(db, thread, storage, attachments=attachments):
             yield {
                 "event": event["event"],
                 "data": json.dumps(event["data"]) if isinstance(event["data"], dict) else event["data"],
@@ -116,24 +105,10 @@ async def regenerate_response(
         await db.delete(last_assistant_msg)
         await db.commit()
 
-    user_content: str | list[dict] = last_user_msg.content or ""
-    if last_user_msg.attachments:
-        content_parts: list[dict] = []
-        if last_user_msg.content:
-            content_parts.append({"type": "text", "text": last_user_msg.content})
-        for att in last_user_msg.attachments:
-            if att.media_type == "image":
-                content_parts.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"attachment://{att.id}"},
-                })
-        if content_parts:
-            user_content = content_parts
-
     regen_attachments = list(last_user_msg.attachments) if last_user_msg.attachments else None
 
     async def event_generator():
-        async for event in stream_llm_response(db, thread, user_content, storage, attachments=regen_attachments):
+        async for event in stream_llm_response(db, thread, storage, attachments=regen_attachments):
             yield {
                 "event": event["event"],
                 "data": json.dumps(event["data"]) if isinstance(event["data"], dict) else event["data"],

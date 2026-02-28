@@ -84,12 +84,26 @@ a{color:var(--accent);text-decoration:none}
 @keyframes blink{50%{opacity:0}}
 
 /* Input Bar */
-.input-bar{padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:10px;align-items:flex-end;background:var(--bg2)}
-.input-bar textarea{flex:1;resize:none;padding:10px 14px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius);min-height:42px;max-height:160px;line-height:1.5;transition:border-color .15s}
-.input-bar textarea:focus{border-color:var(--accent)}
+.input-bar{padding:12px 20px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px;background:var(--bg2)}
+.input-row{display:flex;gap:10px;align-items:flex-end}
+.input-row textarea{flex:1;resize:none;padding:10px 14px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius);min-height:42px;max-height:160px;line-height:1.5;transition:border-color .15s}
+.input-row textarea:focus{border-color:var(--accent)}
+.btn-attach{padding:10px;background:var(--bg3);color:var(--fg2);border-radius:var(--radius);transition:background .15s,color .15s;align-self:flex-end;display:flex;align-items:center;justify-content:center;width:42px;height:42px}
+.btn-attach:hover{background:var(--bg4);color:var(--fg)}
+.btn-attach svg{width:18px;height:18px}
 .btn-send{padding:10px 18px;background:var(--accent);color:#fff;border-radius:var(--radius);font-weight:600;transition:background .15s;align-self:flex-end}
 .btn-send:hover{background:var(--accent2)}
 .btn-send:disabled{opacity:.5;cursor:not-allowed}
+
+/* File preview strip */
+.file-preview-strip{display:flex;gap:8px;flex-wrap:wrap}
+.file-preview-strip:empty{display:none}
+.file-chip{display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;color:var(--fg2);max-width:200px;animation:fadeIn .15s ease-out}
+.file-chip .file-thumb{width:28px;height:28px;border-radius:4px;object-fit:cover;flex-shrink:0}
+.file-chip .file-icon{width:28px;height:28px;display:flex;align-items:center;justify-content:center;background:var(--bg4);border-radius:4px;font-size:10px;color:var(--fg3);flex-shrink:0}
+.file-chip .file-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.file-chip .file-remove{background:none;padding:0;color:var(--fg3);font-size:16px;line-height:1;transition:color .15s;flex-shrink:0}
+.file-chip .file-remove:hover{color:var(--danger)}
 
 /* Modal */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:100;animation:fadeIn .12s ease-out}
@@ -173,8 +187,15 @@ a{color:var(--accent);text-decoration:none}
         <div class="empty-state" id="empty-state">Select a thread from the sidebar or create a new one to start chatting.</div>
       </div>
       <div class="input-bar hidden" id="input-bar">
-        <textarea id="prompt-input" placeholder="Type your message..." rows="1" onkeydown="handlePromptKey(event)"></textarea>
-        <button class="btn-send" id="btn-send" onclick="sendMessage()">Send</button>
+        <div class="file-preview-strip" id="file-preview"></div>
+        <div class="input-row">
+          <input type="file" id="file-input" multiple hidden onchange="handleFilesSelected()">
+          <button class="btn-attach" onclick="document.getElementById('file-input').click()" title="Attach files">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <textarea id="prompt-input" placeholder="Type your message..." rows="1" onkeydown="handlePromptKey(event)"></textarea>
+          <button class="btn-send" id="btn-send" onclick="sendMessage()">Send</button>
+        </div>
       </div>
     </div>
 
@@ -186,10 +207,6 @@ a{color:var(--accent);text-decoration:none}
   <div class="modal" onclick="event.stopPropagation()">
     <h2>New Thread</h2>
     <form id="new-thread-form" onsubmit="createThread(event)">
-      <div class="form-group">
-        <label>Title</label>
-        <input type="text" id="input-thread-title" placeholder="e.g. Code review help" required>
-      </div>
       <div class="form-group">
         <label>Model</label>
         <select id="input-thread-model" required>
@@ -211,6 +228,9 @@ a{color:var(--accent);text-decoration:none}
 const API = '/api/v1';
 let currentThreadId = null;
 let isStreaming = false;
+let threadNeedsTitle = false;
+let threadMessageCount = 0;
+let pendingFiles = [];
 
 /* ──────────────────────────────────────────
    API helper
@@ -235,6 +255,7 @@ async function api(path, opts = {}) {
   if (opts.json) {
     headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(opts.json);
+    if (!opts.method) opts.method = 'POST';
     delete opts.json;
   }
   opts.headers = headers;
@@ -318,6 +339,7 @@ async function apiNoAuth(path, opts = {}) {
   if (opts.json) {
     headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(opts.json);
+    if (!opts.method) opts.method = 'POST';
     delete opts.json;
   }
   opts.headers = headers;
@@ -332,6 +354,18 @@ async function apiNoAuth(path, opts = {}) {
 function logout() {
   clearTokens();
   currentThreadId = null;
+  isStreaming = false;
+  threadNeedsTitle = false;
+  threadMessageCount = 0;
+  pendingFiles = [];
+  document.getElementById('thread-list').innerHTML = '';
+  document.getElementById('messages').innerHTML =
+    '<div class="empty-state" id="empty-state">Select a thread from the sidebar or create a new one to start chatting.</div>';
+  document.getElementById('chat-title').textContent = 'Select or create a thread';
+  document.getElementById('chat-model').classList.add('hidden');
+  document.getElementById('input-bar').classList.add('hidden');
+  document.getElementById('user-name').textContent = 'User';
+  document.getElementById('user-email').textContent = '';
   showScreen('auth');
 }
 
@@ -376,6 +410,10 @@ function renderThreadList(threads) {
 }
 
 async function selectThread(id) {
+  if (currentThreadId && currentThreadId !== id && threadNeedsTitle) {
+    generateTitle(currentThreadId);
+  }
+
   currentThreadId = id;
   document.querySelectorAll('.thread-item').forEach(el => el.classList.remove('active'));
   const items = document.querySelectorAll('.thread-item');
@@ -388,8 +426,14 @@ async function selectThread(id) {
     modelEl.textContent = thread.llm_name;
     modelEl.classList.remove('hidden');
     document.getElementById('input-bar').classList.remove('hidden');
-    document.getElementById('empty-state').classList.add('hidden');
-    renderMessages(thread.messages || []);
+    const emptyState = document.getElementById('empty-state');
+    if (emptyState) emptyState.classList.add('hidden');
+
+    const msgs = thread.messages || [];
+    threadMessageCount = msgs.length;
+    threadNeedsTitle = thread.title === 'New chat' && msgs.length > 0;
+    clearFiles();
+    renderMessages(msgs);
   } catch {}
 }
 
@@ -408,7 +452,6 @@ function renderMessages(messages) {
    ────────────────────────────────────────── */
 async function openNewThreadModal() {
   document.getElementById('modal-overlay').classList.remove('hidden');
-  document.getElementById('input-thread-title').value = '';
   const select = document.getElementById('input-thread-model');
   select.innerHTML = '<option value="" disabled selected>Loading...</option>';
   try {
@@ -429,17 +472,77 @@ function closeModal(e) {
 
 async function createThread(e) {
   e.preventDefault();
-  const title = document.getElementById('input-thread-title').value.trim();
   const llm_name = document.getElementById('input-thread-model').value;
-  if (!title || !llm_name) return;
+  if (!llm_name) return;
   try {
-    const thread = await api('/threads/', { method: 'POST', json: { title, llm_name } });
+    const thread = await api('/threads/', { method: 'POST', json: { llm_name } });
     document.getElementById('modal-overlay').classList.add('hidden');
     await loadThreads();
     await selectThread(thread.id);
   } catch (err) {
     alert(err.message);
   }
+}
+
+/* ──────────────────────────────────────────
+   Thread title generation
+   ────────────────────────────────────────── */
+async function generateTitle(threadId) {
+  try {
+    const result = await api('/threads/' + threadId + '/generate-title', { method: 'POST' });
+    if (result && result.title) {
+      if (threadId === currentThreadId) {
+        document.getElementById('chat-title').textContent = result.title;
+        threadNeedsTitle = false;
+      }
+      loadThreads();
+    }
+  } catch {}
+}
+
+/* ──────────────────────────────────────────
+   File attachments
+   ────────────────────────────────────────── */
+function handleFilesSelected() {
+  const input = document.getElementById('file-input');
+  for (const file of input.files) {
+    pendingFiles.push(file);
+  }
+  input.value = '';
+  renderFilePreview();
+}
+
+function removeFile(index) {
+  pendingFiles.splice(index, 1);
+  renderFilePreview();
+}
+
+function renderFilePreview() {
+  const strip = document.getElementById('file-preview');
+  if (!pendingFiles.length) { strip.innerHTML = ''; return; }
+  strip.innerHTML = pendingFiles.map((f, i) => {
+    const isImage = f.type.startsWith('image/');
+    let thumbHtml;
+    if (isImage) {
+      const url = URL.createObjectURL(f);
+      thumbHtml = `<img class="file-thumb" src="${url}" alt="" onload="URL.revokeObjectURL(this.src)">`;
+    } else {
+      const ext = f.name.split('.').pop().toUpperCase().slice(0, 4);
+      thumbHtml = `<div class="file-icon">${esc(ext)}</div>`;
+    }
+    const sizeKB = (f.size / 1024).toFixed(0);
+    return `<div class="file-chip">
+      ${thumbHtml}
+      <span class="file-name" title="${esc(f.name)}">${esc(f.name)}</span>
+      <span style="font-size:10px;color:var(--fg3)">${sizeKB}KB</span>
+      <button class="file-remove" onclick="removeFile(${i})" title="Remove">&times;</button>
+    </div>`;
+  }).join('');
+}
+
+function clearFiles() {
+  pendingFiles = [];
+  renderFilePreview();
 }
 
 /* ──────────────────────────────────────────
@@ -456,11 +559,19 @@ async function sendMessage() {
   if (isStreaming || !currentThreadId) return;
   const input = document.getElementById('prompt-input');
   const prompt = input.value.trim();
-  if (!prompt) return;
+  if (!prompt && !pendingFiles.length) return;
   input.value = '';
   autoResize(input);
 
-  appendMessage('user', prompt);
+  let userDisplay = prompt;
+  if (pendingFiles.length) {
+    const names = pendingFiles.map(f => f.name).join(', ');
+    userDisplay = (prompt ? prompt + '\n' : '') + '[Attached: ' + names + ']';
+  }
+  appendMessage('user', userDisplay);
+
+  const filesToSend = [...pendingFiles];
+  clearFiles();
 
   const assistantEl = appendMessage('assistant', '');
   assistantEl.classList.add('streaming-cursor');
@@ -470,12 +581,26 @@ async function sendMessage() {
 
   try {
     const form = new FormData();
-    form.append('prompt', prompt);
-    const res = await fetch(API + '/chat/' + currentThreadId + '/send', {
+    form.append('prompt', prompt || '(see attached files)');
+    for (const file of filesToSend) {
+      form.append('files', file);
+    }
+    let res = await fetch(API + '/chat/' + currentThreadId + '/send', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + getToken() },
       body: form,
     });
+
+    if (res.status === 401) {
+      const refreshed = await tryRefresh();
+      if (refreshed) {
+        res = await fetch(API + '/chat/' + currentThreadId + '/send', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + getToken() },
+          body: form,
+        });
+      }
+    }
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: 'Send failed' }));
@@ -523,6 +648,12 @@ async function sendMessage() {
 
     assistantEl.innerHTML = formatContent(fullText);
     assistantEl.classList.remove('streaming-cursor');
+
+    threadMessageCount += 2;
+    if (threadMessageCount === 2) {
+      threadNeedsTitle = true;
+      generateTitle(currentThreadId);
+    }
     loadThreads();
   } catch (err) {
     assistantEl.textContent = 'Error: ' + err.message;
@@ -535,7 +666,8 @@ async function sendMessage() {
 
 function appendMessage(role, content) {
   const el = document.getElementById('messages');
-  document.getElementById('empty-state').classList.add('hidden');
+  const empty = document.getElementById('empty-state');
+  if (empty) empty.remove();
   const div = document.createElement('div');
   div.className = 'msg ' + role;
   div.innerHTML = formatContent(content);

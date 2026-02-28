@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ThreadCreate(BaseModel):
-    title: str
+    title: str = "New chat"
     llm_name: str
 
 

@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LPO Admin — Pricing</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#111113;--bg2:#18181b;--bg3:#222226;--bg4:#2c2c32;
+  --fg:#e4e4e7;--fg2:#a1a1aa;--fg3:#71717a;
+  --accent:#6366f1;--accent2:#4f52dd;
+  --green:#22c55e;--green-bg:rgba(34,197,94,.10);
+  --red:#ef4444;--red-bg:rgba(239,68,68,.10);
+  --yellow:#eab308;--yellow-bg:rgba(234,179,8,.10);
+  --border:#2e2e33;
+  --radius:8px;--radius-lg:12px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+}
+html,body{height:100%;font-family:var(--font);background:var(--bg);color:var(--fg);font-size:14px;line-height:1.5}
+button{font-family:inherit;font-size:inherit;cursor:pointer;border:none;outline:none}
+input,select{font-family:inherit;font-size:inherit;outline:none;border:none}
+
+/* Layout */
+.app{max-width:1200px;margin:0 auto;padding:24px 20px}
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;flex-wrap:wrap;gap:12px}
+.header h1{font-size:22px;font-weight:700}
+.header .subtitle{color:var(--fg2);font-size:13px}
+
+/* Auth bar */
+.auth-bar{display:flex;align-items:center;gap:10px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:24px}
+.auth-bar label{font-size:12px;color:var(--fg2);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+.auth-bar input{flex:1;padding:8px 12px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius);font-family:var(--mono);font-size:13px;min-width:200px}
+.auth-bar input:focus{border-color:var(--accent)}
+.auth-bar .btn{padding:8px 16px;border-radius:var(--radius);font-weight:600;transition:background .15s}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent2)}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.status-dot.ok{background:var(--green)}
+.status-dot.err{background:var(--red)}
+.status-dot.idle{background:var(--fg3)}
+.status-text{font-size:12px;color:var(--fg3)}
+
+/* Sections */
+.section{margin-bottom:32px}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px}
+.section-header h2{font-size:17px;font-weight:600}
+.badge{font-size:11px;padding:2px 8px;border-radius:4px;font-weight:500}
+.badge-count{background:rgba(99,102,241,.12);color:var(--accent)}
+
+/* Table */
+.table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg2)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead{background:var(--bg3)}
+th{padding:10px 14px;text-align:left;font-weight:600;color:var(--fg2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border)}
+td{padding:10px 14px;border-bottom:1px solid var(--border);white-space:nowrap}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--bg3)}
+.provider-badge{font-size:10px;color:var(--accent);background:rgba(99,102,241,.12);padding:2px 6px;border-radius:4px}
+.price-val{font-family:var(--mono);font-size:12px}
+.price-na{color:var(--fg3);font-style:italic;font-size:11px}
+.date-val{color:var(--fg2);font-size:12px}
+.empty-msg{padding:40px;text-align:center;color:var(--fg3)}
+
+/* Form panel */
+.form-panel{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form-grid .full-width{grid-column:1/-1}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-group label{font-size:11px;color:var(--fg2);text-transform:uppercase;letter-spacing:.5px}
+.form-group input,.form-group select{padding:9px 12px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius);transition:border-color .15s}
+.form-group input:focus,.form-group select:focus{border-color:var(--accent)}
+.form-group select{appearance:none}
+.form-group .hint{font-size:10px;color:var(--fg3);margin-top:2px}
+.form-actions{display:flex;gap:10px;margin-top:18px;justify-content:flex-end}
+.form-actions .btn{padding:10px 20px;border-radius:var(--radius);font-weight:600}
+.btn-secondary{background:var(--bg3);color:var(--fg2)}
+.btn-secondary:hover{background:var(--bg4);color:var(--fg)}
+
+/* Toast */
+.toast-container{position:fixed;top:20px;right:20px;z-index:200;display:flex;flex-direction:column;gap:8px}
+.toast{padding:12px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;animation:slideIn .2s ease-out;box-shadow:0 4px 20px rgba(0,0,0,.4);max-width:400px}
+.toast.success{background:var(--green-bg);color:var(--green);border:1px solid rgba(34,197,94,.25)}
+.toast.error{background:var(--red-bg);color:var(--red);border:1px solid rgba(239,68,68,.25)}
+.toast.info{background:var(--yellow-bg);color:var(--yellow);border:1px solid rgba(234,179,8,.25)}
+@keyframes slideIn{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:none}}
+
+/* Responsive */
+@media(max-width:700px){
+  .form-grid{grid-template-columns:1fr}
+  .form-grid .full-width{grid-column:1}
+  .auth-bar{flex-wrap:wrap}
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="header">
+    <div>
+      <h1>LPO Admin</h1>
+      <p class="subtitle">Model pricing management</p>
+    </div>
+    <a href="/" style="font-size:13px;color:var(--fg2);text-decoration:none">&larr; Back to Chat</a>
+  </div>
+
+  <!-- API Key -->
+  <div class="auth-bar">
+    <label>API Key</label>
+    <input type="password" id="api-key-input" placeholder="Enter pricing API key..." autocomplete="off">
+    <button class="btn btn-primary" id="btn-connect" onclick="connect()">Connect</button>
+    <div class="status-dot idle" id="status-dot"></div>
+    <span class="status-text" id="status-text">Not connected</span>
+  </div>
+
+  <!-- Current Pricing Table -->
+  <div class="section" id="section-pricing">
+    <div class="section-header">
+      <h2>Current Pricing</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="badge badge-count" id="model-count">0 models</span>
+        <button class="btn btn-secondary" onclick="loadPricing()" style="padding:6px 12px;font-size:12px">Refresh</button>
+        <button class="btn btn-primary" id="btn-sync" onclick="syncFromLiteLLM()" style="padding:6px 12px;font-size:12px">Sync from LiteLLM</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Provider</th>
+            <th>Model</th>
+            <th>Input $/1M</th>
+            <th>Output $/1M</th>
+            <th>Image In $/1M</th>
+            <th>Audio In $/1M</th>
+            <th>Audio Out $/1M</th>
+            <th>Video In $/1M</th>
+            <th>Effective From</th>
+          </tr>
+        </thead>
+        <tbody id="pricing-tbody">
+          <tr><td colspan="9" class="empty-msg">Connect with your API key to view pricing</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Add Pricing Form -->
+  <div class="section">
+    <div class="section-header">
+      <h2>Add Pricing Entry</h2>
+    </div>
+    <div class="form-panel">
+      <form id="pricing-form" onsubmit="submitPricing(event)">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Provider</label>
+            <input type="text" id="f-provider" placeholder="e.g. openai" required list="provider-list">
+            <datalist id="provider-list"></datalist>
+          </div>
+          <div class="form-group">
+            <label>Model Name</label>
+            <input type="text" id="f-model" placeholder="e.g. gpt-4o" required list="model-list">
+            <datalist id="model-list"></datalist>
+          </div>
+          <div class="form-group">
+            <label>Input Price / 1M tokens ($)</label>
+            <input type="number" id="f-input-price" step="any" min="0" placeholder="0.00" required>
+          </div>
+          <div class="form-group">
+            <label>Output Price / 1M tokens ($)</label>
+            <input type="number" id="f-output-price" step="any" min="0" placeholder="0.00" required>
+          </div>
+          <div class="form-group">
+            <label>Image Input / 1M tokens ($)</label>
+            <input type="number" id="f-image-input" step="any" min="0" placeholder="Optional">
+            <span class="hint">Leave blank if not applicable</span>
+          </div>
+          <div class="form-group">
+            <label>Audio Input / 1M tokens ($)</label>
+            <input type="number" id="f-audio-input" step="any" min="0" placeholder="Optional">
+          </div>
+          <div class="form-group">
+            <label>Audio Output / 1M tokens ($)</label>
+            <input type="number" id="f-audio-output" step="any" min="0" placeholder="Optional">
+          </div>
+          <div class="form-group">
+            <label>Video Input / 1M tokens ($)</label>
+            <input type="number" id="f-video-input" step="any" min="0" placeholder="Optional">
+          </div>
+          <div class="form-group">
+            <label>Effective From</label>
+            <input type="datetime-local" id="f-effective-from">
+            <span class="hint">Defaults to now if left blank</span>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="reset" class="btn btn-secondary">Clear</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit">Add Pricing</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+const API = '/api/v1';
+let apiKey = '';
+let connected = false;
+
+function getKey() {
+  return document.getElementById('api-key-input').value.trim();
+}
+
+async function pricingApi(path, opts = {}) {
+  const headers = { 'X-Pricing-Api-Key': apiKey, ...(opts.headers || {}) };
+  if (opts.json) {
+    headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(opts.json);
+    if (!opts.method) opts.method = 'POST';
+    delete opts.json;
+  }
+  opts.headers = headers;
+  const res = await fetch(API + '/pricing' + path, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Request failed');
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+function setStatus(ok, text) {
+  const dot = document.getElementById('status-dot');
+  const txt = document.getElementById('status-text');
+  dot.className = 'status-dot ' + (ok === true ? 'ok' : ok === false ? 'err' : 'idle');
+  txt.textContent = text;
+}
+
+async function connect() {
+  apiKey = getKey();
+  if (!apiKey) { toast('Enter an API key', 'error'); return; }
+  try {
+    setStatus(null, 'Connecting...');
+    await loadPricing();
+    connected = true;
+    setStatus(true, 'Connected');
+    document.getElementById('api-key-input').type = 'password';
+    toast('Connected successfully', 'success');
+  } catch (err) {
+    connected = false;
+    setStatus(false, 'Connection failed');
+    toast(err.message, 'error');
+  }
+}
+
+async function loadPricing() {
+  const data = await pricingApi('/');
+  renderPricingTable(data);
+  populateDataLists(data);
+}
+
+async function syncFromLiteLLM() {
+  if (!connected) { toast('Connect with your API key first', 'error'); return; }
+  const btn = document.getElementById('btn-sync');
+  btn.disabled = true;
+  btn.textContent = 'Syncing...';
+  try {
+    const result = await pricingApi('/sync', { method: 'POST' });
+    const msg = `Sync complete: ${result.updated_count} updated, ${result.unchanged} unchanged, ${result.skipped} skipped`;
+    toast(msg, result.updated_count > 0 ? 'success' : 'info');
+    if (result.errors && result.errors.length) {
+      result.errors.forEach(e => toast(e, 'error'));
+    }
+    await loadPricing();
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sync from LiteLLM';
+  }
+}
+
+function renderPricingTable(rows) {
+  const tbody = document.getElementById('pricing-tbody');
+  document.getElementById('model-count').textContent = rows.length + ' model' + (rows.length !== 1 ? 's' : '');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-msg">No pricing data yet. Add your first entry below.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td><span class="provider-badge">${esc(r.provider)}</span></td>
+      <td>${esc(r.model_name)}</td>
+      <td class="price-val">$${fmtPrice(r.input_price_per_million)}</td>
+      <td class="price-val">$${fmtPrice(r.output_price_per_million)}</td>
+      <td>${r.image_input_price_per_million != null ? '<span class="price-val">$' + fmtPrice(r.image_input_price_per_million) + '</span>' : '<span class="price-na">—</span>'}</td>
+      <td>${r.audio_input_price_per_million != null ? '<span class="price-val">$' + fmtPrice(r.audio_input_price_per_million) + '</span>' : '<span class="price-na">—</span>'}</td>
+      <td>${r.audio_output_price_per_million != null ? '<span class="price-val">$' + fmtPrice(r.audio_output_price_per_million) + '</span>' : '<span class="price-na">—</span>'}</td>
+      <td>${r.video_input_price_per_million != null ? '<span class="price-val">$' + fmtPrice(r.video_input_price_per_million) + '</span>' : '<span class="price-na">—</span>'}</td>
+      <td class="date-val">${fmtDate(r.effective_from)}</td>
+    </tr>
+  `).join('');
+}
+
+function populateDataLists(rows) {
+  const providers = [...new Set(rows.map(r => r.provider))].sort();
+  const models = [...new Set(rows.map(r => r.model_name))].sort();
+  document.getElementById('provider-list').innerHTML = providers.map(p => `<option value="${esc(p)}">`).join('');
+  document.getElementById('model-list').innerHTML = models.map(m => `<option value="${esc(m)}">`).join('');
+}
+
+async function submitPricing(e) {
+  e.preventDefault();
+  if (!connected) { toast('Connect with your API key first', 'error'); return; }
+
+  const payload = {
+    provider: document.getElementById('f-provider').value.trim(),
+    model_name: document.getElementById('f-model').value.trim(),
+    input_price_per_million: parseFloat(document.getElementById('f-input-price').value),
+    output_price_per_million: parseFloat(document.getElementById('f-output-price').value),
+  };
+
+  const optFloat = (id) => { const v = document.getElementById(id).value; return v ? parseFloat(v) : null; };
+  const imageIn = optFloat('f-image-input');
+  const audioIn = optFloat('f-audio-input');
+  const audioOut = optFloat('f-audio-output');
+  const videoIn = optFloat('f-video-input');
+  if (imageIn !== null) payload.image_input_price_per_million = imageIn;
+  if (audioIn !== null) payload.audio_input_price_per_million = audioIn;
+  if (audioOut !== null) payload.audio_output_price_per_million = audioOut;
+  if (videoIn !== null) payload.video_input_price_per_million = videoIn;
+
+  const effFrom = document.getElementById('f-effective-from').value;
+  if (effFrom) payload.effective_from = new Date(effFrom).toISOString();
+
+  const btn = document.getElementById('btn-submit');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  try {
+    await pricingApi('/', { json: payload });
+    toast(`Pricing added for ${payload.model_name}`, 'success');
+    document.getElementById('pricing-form').reset();
+    await loadPricing();
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Add Pricing';
+  }
+}
+
+function fmtPrice(v) {
+  if (v == null) return '—';
+  const n = parseFloat(v);
+  if (n === 0) return '0.00';
+  if (n < 0.01) return n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '.0');
+  return n.toFixed(4).replace(/0+$/, '').replace(/\.$/, '.0');
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+    ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function toast(msg, type = 'info') {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  container.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 300); }, 4000);
+}
+
+document.getElementById('api-key-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') connect();
+});
+</script>
+</body>
+</html>

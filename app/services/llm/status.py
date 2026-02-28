@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 STALE_THRESHOLD_SECONDS = 3600  # 1 hour
 BACKGROUND_CHECK_INTERVAL_SECONDS = 300  # poll every 5 minutes
 MODEL_REFRESH_INTERVAL_SECONDS = 3600  # refresh model lists every hour
+PRICING_SYNC_INTERVAL_SECONDS = 86400  # sync pricing once per day
 
 
 @dataclass
@@ -44,6 +45,7 @@ class ProviderStatusTracker:
         self._providers: dict[str, LLMProvider] = {}
         self._background_task: asyncio.Task | None = None
         self._models_version: int = 0
+        self._last_pricing_sync: datetime | None = None
 
     @property
     def models_version(self) -> int:
@@ -141,8 +143,26 @@ class ProviderStatusTracker:
                 return True
         return False
 
+    def _pricing_sync_due(self) -> bool:
+        if self._last_pricing_sync is None:
+            return True
+        elapsed = (datetime.now(timezone.utc) - self._last_pricing_sync).total_seconds()
+        return elapsed >= PRICING_SYNC_INTERVAL_SECONDS
+
+    async def _run_pricing_sync(self) -> None:
+        from app.database import async_session_factory
+        from app.services.pricing_sync import sync_pricing
+
+        async with async_session_factory() as db:
+            result = await sync_pricing(db)
+            self._last_pricing_sync = datetime.now(timezone.utc)
+            logger.info(
+                "Background pricing sync: %d updated, %d unchanged",
+                len(result.updated), result.unchanged,
+            )
+
     async def _background_loop(self) -> None:
-        """Periodically check stale providers and refresh model lists."""
+        """Periodically check stale providers, refresh model lists, and sync pricing."""
         while True:
             await asyncio.sleep(BACKGROUND_CHECK_INTERVAL_SECONDS)
             try:
@@ -154,6 +174,11 @@ class ProviderStatusTracker:
                     await self.refresh_all_models()
             except Exception:
                 logger.exception("Error in model refresh background loop")
+            try:
+                if self._pricing_sync_due():
+                    await self._run_pricing_sync()
+            except Exception:
+                logger.exception("Error in pricing sync background loop")
 
     def start_background_checks(self) -> None:
         if self._background_task is None or self._background_task.done():

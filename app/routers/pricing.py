@@ -11,6 +11,7 @@ from app.config import settings
 from app.dependencies import get_db
 from app.models.pricing import ModelPricing
 from app.schemas.pricing import PricingBulkCreate, PricingCreate, PricingResponse
+from app.services.pricing_sync import sync_pricing
 
 router = APIRouter()
 
@@ -97,6 +98,15 @@ async def list_current_pricing(
     )
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.post("/sync")
+async def sync_pricing_from_litellm(
+    _key: None = Depends(_require_pricing_key),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await sync_pricing(db)
+    return result.to_dict()
 
 
 @router.get("/history", response_model=list[PricingResponse])

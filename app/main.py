@@ -28,6 +28,19 @@ async def lifespan(app: FastAPI):
     logger.info("Fetching live model lists from LLM providers...")
     await provider_status_tracker.refresh_all_models()
 
+    logger.info("Syncing LLM pricing from LiteLLM...")
+    try:
+        from app.database import async_session_factory
+        from app.services.pricing_sync import sync_pricing
+        async with async_session_factory() as db:
+            result = await sync_pricing(db)
+        logger.info(
+            "Pricing sync complete: %d updated, %d unchanged",
+            len(result.updated), result.unchanged,
+        )
+    except Exception:
+        logger.exception("Pricing sync failed on startup")
+
     provider_status_tracker.start_background_checks()
 
     yield
@@ -77,6 +90,11 @@ async def health():
 @app.get("/")
 async def root():
     return FileResponse("web_client/index.html")
+
+
+@app.get("/admin")
+async def admin():
+    return FileResponse("web_client/admin.html")
 
 
 app.mount("/static", StaticFiles(directory="web_client"), name="static")
