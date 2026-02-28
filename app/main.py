@@ -6,7 +6,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 
@@ -71,3 +72,11 @@ app.include_router(pricing.router, prefix=f"{settings.api_v1_prefix}/pricing", t
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/")
+async def root():
+    return FileResponse("web_client/index.html")
+
+
+app.mount("/static", StaticFiles(directory="web_client"), name="static")

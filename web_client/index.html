@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LPO Chat</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:rgb(17,17,19);--bg2:rgb(24,24,27);--bg3:rgb(34,34,38);--bg4:rgb(44,44,50);
+  --fg:rgb(228,228,231);--fg2:rgb(161,161,170);--fg3:rgb(113,113,122);
+  --accent:rgb(99,102,241);--accent2:rgb(79,82,221);
+  --user-bg:rgb(39,39,66);--asst-bg:rgb(30,30,34);
+  --border:rgb(46,46,51);--danger:rgb(239,68,68);
+  --radius:8px;--radius-lg:12px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+}
+html,body{height:100%;font-family:var(--font);background:var(--bg);color:var(--fg);font-size:14px;line-height:1.5}
+button{font-family:inherit;font-size:inherit;cursor:pointer;border:none;outline:none}
+input,textarea,select{font-family:inherit;font-size:inherit;outline:none;border:none}
+a{color:var(--accent);text-decoration:none}
+
+/* ── Auth Screen ── */
+#auth-screen{display:flex;align-items:center;justify-content:center;height:100%;background:var(--bg)}
+.auth-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:32px;width:380px;max-width:90vw}
+.auth-card h1{font-size:22px;margin-bottom:4px;text-align:center}
+.auth-card .subtitle{color:var(--fg2);text-align:center;margin-bottom:24px;font-size:13px}
+.auth-tabs{display:flex;gap:0;margin-bottom:20px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border)}
+.auth-tabs button{flex:1;padding:8px;background:var(--bg3);color:var(--fg2);transition:background .15s,color .15s}
+.auth-tabs button.active{background:var(--accent);color:#fff}
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:12px;color:var(--fg2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
+.form-group input{width:100%;padding:10px 12px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius);transition:border-color .15s}
+.form-group input:focus{border-color:var(--accent)}
+.auth-submit{width:100%;padding:10px;background:var(--accent);color:#fff;border-radius:var(--radius);font-weight:600;margin-top:6px;transition:background .15s}
+.auth-submit:hover{background:var(--accent2)}
+.auth-error{color:var(--danger);font-size:12px;margin-top:8px;min-height:18px;text-align:center}
+
+/* ── Chat Screen ── */
+#chat-screen{display:none;height:100%;overflow:hidden}
+.chat-layout{display:flex;height:100%}
+
+/* Sidebar */
+.sidebar{width:280px;min-width:280px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100%}
+.sidebar-header{padding:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.sidebar-header .user-info{font-size:13px;color:var(--fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.sidebar-header .user-info strong{color:var(--fg);display:block;font-size:14px}
+.btn-logout{padding:6px 10px;background:var(--bg3);color:var(--fg2);border-radius:var(--radius);font-size:12px;transition:background .15s}
+.btn-logout:hover{background:var(--bg4);color:var(--fg)}
+.thread-list{flex:1;overflow-y:auto;padding:8px}
+.thread-item{padding:10px 12px;border-radius:var(--radius);cursor:pointer;margin-bottom:2px;transition:background .12s}
+.thread-item:hover{background:var(--bg3)}
+.thread-item.active{background:var(--bg4)}
+.thread-item .thread-title{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thread-item .thread-meta{display:flex;align-items:center;gap:6px;margin-top:3px}
+.thread-item .model-badge{font-size:10px;color:var(--accent);background:rgba(99,102,241,.12);padding:1px 6px;border-radius:4px;white-space:nowrap}
+.thread-item .thread-preview{font-size:11px;color:var(--fg3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.sidebar-footer{padding:12px;border-top:1px solid var(--border)}
+.btn-new-thread{width:100%;padding:10px;background:var(--accent);color:#fff;border-radius:var(--radius);font-weight:600;transition:background .15s}
+.btn-new-thread:hover{background:var(--accent2)}
+
+/* Main Panel */
+.main-panel{flex:1;display:flex;flex-direction:column;height:100%;min-width:0}
+.chat-header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;min-height:52px}
+.chat-header .chat-title{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-header .chat-model{font-size:11px;color:var(--accent);background:rgba(99,102,241,.12);padding:2px 8px;border-radius:4px}
+.messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px}
+.empty-state{flex:1;display:flex;align-items:center;justify-content:center;color:var(--fg3);font-size:15px;text-align:center;padding:40px}
+
+/* Messages */
+.msg{max-width:72%;padding:12px 16px;border-radius:var(--radius-lg);font-size:14px;line-height:1.6;animation:fadeIn .15s ease-out}
+.msg.user{align-self:flex-end;background:var(--user-bg);border-bottom-right-radius:4px}
+.msg.assistant{align-self:flex-start;background:var(--asst-bg);border:1px solid var(--border);border-bottom-left-radius:4px}
+.msg pre{background:var(--bg);padding:10px 12px;border-radius:var(--radius);overflow-x:auto;margin:8px 0;font-family:var(--mono);font-size:13px}
+.msg code{font-family:var(--mono);font-size:13px;background:var(--bg);padding:1px 5px;border-radius:3px}
+.msg pre code{background:none;padding:0}
+.msg p{margin:6px 0}
+.msg p:first-child{margin-top:0}
+.msg p:last-child{margin-bottom:0}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+.streaming-cursor::after{content:"\25AE";animation:blink .6s infinite;margin-left:2px;color:var(--fg2)}
+@keyframes blink{50%{opacity:0}}
+
+/* Input Bar */
+.input-bar{padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:10px;align-items:flex-end;background:var(--bg2)}
+.input-bar textarea{flex:1;resize:none;padding:10px 14px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius);min-height:42px;max-height:160px;line-height:1.5;transition:border-color .15s}
+.input-bar textarea:focus{border-color:var(--accent)}
+.btn-send{padding:10px 18px;background:var(--accent);color:#fff;border-radius:var(--radius);font-weight:600;transition:background .15s;align-self:flex-end}
+.btn-send:hover{background:var(--accent2)}
+.btn-send:disabled{opacity:.5;cursor:not-allowed}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:100;animation:fadeIn .12s ease-out}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px;width:420px;max-width:90vw}
+.modal h2{font-size:18px;margin-bottom:18px}
+.modal .form-group select{width:100%;padding:10px 12px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius);appearance:none;transition:border-color .15s}
+.modal .form-group select:focus{border-color:var(--accent)}
+.modal-actions{display:flex;gap:10px;margin-top:18px}
+.modal-actions button{flex:1;padding:10px;border-radius:var(--radius);font-weight:600;transition:background .15s}
+.btn-cancel{background:var(--bg3);color:var(--fg2)}
+.btn-cancel:hover{background:var(--bg4);color:var(--fg)}
+.btn-create{background:var(--accent);color:#fff}
+.btn-create:hover{background:var(--accent2)}
+
+/* Responsive */
+@media(max-width:700px){
+  .sidebar{position:fixed;left:-280px;z-index:50;transition:left .2s;height:100%}
+  .sidebar.open{left:0}
+  .msg{max-width:90%}
+}
+
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<!-- ────────────── Auth Screen ────────────── -->
+<div id="auth-screen">
+  <div class="auth-card">
+    <h1>LPO Chat</h1>
+    <p class="subtitle">Multi-LLM chat assistant</p>
+    <div class="auth-tabs">
+      <button id="tab-login" class="active" onclick="showAuthTab('login')">Login</button>
+      <button id="tab-register" onclick="showAuthTab('register')">Register</button>
+    </div>
+    <form id="auth-form" onsubmit="handleAuth(event)">
+      <div class="form-group hidden" id="field-username">
+        <label>Username</label>
+        <input type="text" id="input-username" placeholder="Your name" autocomplete="name">
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="input-email" placeholder="you@example.com" required autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="input-password" placeholder="••••••••" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="auth-submit" id="auth-submit-btn">Login</button>
+      <div class="auth-error" id="auth-error"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ────────────── Chat Screen ────────────── -->
+<div id="chat-screen">
+  <div class="chat-layout">
+
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="user-info">
+          <strong id="user-name">User</strong>
+          <span id="user-email">user@email.com</span>
+        </div>
+        <button class="btn-logout" onclick="logout()">Log out</button>
+      </div>
+      <div class="thread-list" id="thread-list"></div>
+      <div class="sidebar-footer">
+        <button class="btn-new-thread" onclick="openNewThreadModal()">+ New Thread</button>
+      </div>
+    </div>
+
+    <!-- Main Panel -->
+    <div class="main-panel">
+      <div class="chat-header" id="chat-header">
+        <span class="chat-title" id="chat-title">Select or create a thread</span>
+        <span class="chat-model hidden" id="chat-model"></span>
+      </div>
+      <div class="messages" id="messages">
+        <div class="empty-state" id="empty-state">Select a thread from the sidebar or create a new one to start chatting.</div>
+      </div>
+      <div class="input-bar hidden" id="input-bar">
+        <textarea id="prompt-input" placeholder="Type your message..." rows="1" onkeydown="handlePromptKey(event)"></textarea>
+        <button class="btn-send" id="btn-send" onclick="sendMessage()">Send</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ────────────── New Thread Modal ────────────── -->
+<div class="modal-overlay hidden" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h2>New Thread</h2>
+    <form id="new-thread-form" onsubmit="createThread(event)">
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" id="input-thread-title" placeholder="e.g. Code review help" required>
+      </div>
+      <div class="form-group">
+        <label>Model</label>
+        <select id="input-thread-model" required>
+          <option value="" disabled selected>Loading models...</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="document.getElementById('modal-overlay').classList.add('hidden')">Cancel</button>
+        <button type="submit" class="btn-create">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+/* ──────────────────────────────────────────
+   State
+   ────────────────────────────────────────── */
+const API = '/api/v1';
+let currentThreadId = null;
+let isStreaming = false;
+
+/* ──────────────────────────────────────────
+   API helper
+   ────────────────────────────────────────── */
+function getToken() { return localStorage.getItem('access_token'); }
+function getRefresh() { return localStorage.getItem('refresh_token'); }
+
+function saveTokens(data) {
+  localStorage.setItem('access_token', data.access_token);
+  localStorage.setItem('refresh_token', data.refresh_token);
+}
+
+function clearTokens() {
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+}
+
+async function api(path, opts = {}) {
+  const headers = opts.headers || {};
+  const token = getToken();
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  if (opts.json) {
+    headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(opts.json);
+    delete opts.json;
+  }
+  opts.headers = headers;
+  const res = await fetch(API + path, opts);
+  if (res.status === 401) {
+    const refreshed = await tryRefresh();
+    if (refreshed) return api(path, opts);
+    clearTokens();
+    showScreen('auth');
+    throw new Error('Unauthorized');
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Request failed');
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+async function tryRefresh() {
+  const rt = getRefresh();
+  if (!rt) return false;
+  try {
+    const res = await fetch(API + '/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: rt }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    saveTokens(data);
+    return true;
+  } catch { return false; }
+}
+
+/* ──────────────────────────────────────────
+   Screen switching
+   ────────────────────────────────────────── */
+function showScreen(name) {
+  document.getElementById('auth-screen').style.display = name === 'auth' ? 'flex' : 'none';
+  document.getElementById('chat-screen').style.display = name === 'chat' ? 'block' : 'none';
+}
+
+/* ──────────────────────────────────────────
+   Auth
+   ────────────────────────────────────────── */
+let authMode = 'login';
+
+function showAuthTab(mode) {
+  authMode = mode;
+  document.getElementById('tab-login').classList.toggle('active', mode === 'login');
+  document.getElementById('tab-register').classList.toggle('active', mode === 'register');
+  document.getElementById('field-username').classList.toggle('hidden', mode === 'login');
+  document.getElementById('auth-submit-btn').textContent = mode === 'login' ? 'Login' : 'Register';
+  document.getElementById('auth-error').textContent = '';
+}
+
+async function handleAuth(e) {
+  e.preventDefault();
+  const email = document.getElementById('input-email').value;
+  const password = document.getElementById('input-password').value;
+  const errEl = document.getElementById('auth-error');
+  errEl.textContent = '';
+  try {
+    let data;
+    if (authMode === 'login') {
+      data = await apiNoAuth('/auth/login', { json: { email, password } });
+    } else {
+      const username = document.getElementById('input-username').value;
+      data = await apiNoAuth('/auth/register', { json: { email, password, username } });
+    }
+    saveTokens(data);
+    await enterChat();
+  } catch (err) {
+    errEl.textContent = err.message;
+  }
+}
+
+async function apiNoAuth(path, opts = {}) {
+  const headers = {};
+  if (opts.json) {
+    headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(opts.json);
+    delete opts.json;
+  }
+  opts.headers = headers;
+  const res = await fetch(API + path, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Request failed');
+  }
+  return res.json();
+}
+
+function logout() {
+  clearTokens();
+  currentThreadId = null;
+  showScreen('auth');
+}
+
+/* ──────────────────────────────────────────
+   Enter chat (after login)
+   ────────────────────────────────────────── */
+async function enterChat() {
+  showScreen('chat');
+  try {
+    const user = await api('/auth/me');
+    document.getElementById('user-name').textContent = user.username;
+    document.getElementById('user-email').textContent = user.email;
+  } catch {}
+  await loadThreads();
+}
+
+/* ──────────────────────────────────────────
+   Threads
+   ────────────────────────────────────────── */
+async function loadThreads() {
+  try {
+    const threads = await api('/threads/');
+    renderThreadList(threads);
+  } catch {}
+}
+
+function renderThreadList(threads) {
+  const el = document.getElementById('thread-list');
+  if (!threads.length) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--fg3);font-size:13px">No threads yet</div>';
+    return;
+  }
+  el.innerHTML = threads.map(t => `
+    <div class="thread-item ${t.id === currentThreadId ? 'active' : ''}" onclick="selectThread('${t.id}')">
+      <div class="thread-title">${esc(t.title)}</div>
+      <div class="thread-meta">
+        <span class="model-badge">${esc(t.llm_name)}</span>
+        <span class="thread-preview">${esc(t.last_message_preview || '')}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function selectThread(id) {
+  currentThreadId = id;
+  document.querySelectorAll('.thread-item').forEach(el => el.classList.remove('active'));
+  const items = document.querySelectorAll('.thread-item');
+  items.forEach(el => { if (el.onclick.toString().includes(id)) el.classList.add('active'); });
+
+  try {
+    const thread = await api('/threads/' + id);
+    document.getElementById('chat-title').textContent = thread.title;
+    const modelEl = document.getElementById('chat-model');
+    modelEl.textContent = thread.llm_name;
+    modelEl.classList.remove('hidden');
+    document.getElementById('input-bar').classList.remove('hidden');
+    document.getElementById('empty-state').classList.add('hidden');
+    renderMessages(thread.messages || []);
+  } catch {}
+}
+
+function renderMessages(messages) {
+  const el = document.getElementById('messages');
+  el.innerHTML = messages.map(m => `
+    <div class="msg ${m.role}">
+      ${formatContent(m.content || '')}
+    </div>
+  `).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ──────────────────────────────────────────
+   New Thread modal
+   ────────────────────────────────────────── */
+async function openNewThreadModal() {
+  document.getElementById('modal-overlay').classList.remove('hidden');
+  document.getElementById('input-thread-title').value = '';
+  const select = document.getElementById('input-thread-model');
+  select.innerHTML = '<option value="" disabled selected>Loading...</option>';
+  try {
+    const models = await api('/llm/models');
+    select.innerHTML = models.map(m =>
+      `<option value="${esc(m.model)}">${esc(m.model)} (${esc(m.provider)})</option>`
+    ).join('');
+  } catch {
+    select.innerHTML = '<option value="" disabled selected>Failed to load</option>';
+  }
+}
+
+function closeModal(e) {
+  if (e.target === document.getElementById('modal-overlay')) {
+    document.getElementById('modal-overlay').classList.add('hidden');
+  }
+}
+
+async function createThread(e) {
+  e.preventDefault();
+  const title = document.getElementById('input-thread-title').value.trim();
+  const llm_name = document.getElementById('input-thread-model').value;
+  if (!title || !llm_name) return;
+  try {
+    const thread = await api('/threads/', { method: 'POST', json: { title, llm_name } });
+    document.getElementById('modal-overlay').classList.add('hidden');
+    await loadThreads();
+    await selectThread(thread.id);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+/* ──────────────────────────────────────────
+   Chat / SSE streaming
+   ────────────────────────────────────────── */
+function handlePromptKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+async function sendMessage() {
+  if (isStreaming || !currentThreadId) return;
+  const input = document.getElementById('prompt-input');
+  const prompt = input.value.trim();
+  if (!prompt) return;
+  input.value = '';
+  autoResize(input);
+
+  appendMessage('user', prompt);
+
+  const assistantEl = appendMessage('assistant', '');
+  assistantEl.classList.add('streaming-cursor');
+
+  isStreaming = true;
+  document.getElementById('btn-send').disabled = true;
+
+  try {
+    const form = new FormData();
+    form.append('prompt', prompt);
+    const res = await fetch(API + '/chat/' + currentThreadId + '/send', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + getToken() },
+      body: form,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Send failed' }));
+      assistantEl.textContent = 'Error: ' + (err.detail || 'Send failed');
+      assistantEl.classList.remove('streaming-cursor');
+      isStreaming = false;
+      document.getElementById('btn-send').disabled = false;
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullText = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          var currentEvent = line.slice(6).trim();
+        } else if (line.startsWith('data:')) {
+          const data = line.slice(5).trim();
+          if (currentEvent === 'chunk') {
+            fullText += data;
+            assistantEl.innerHTML = formatContent(fullText);
+            assistantEl.classList.add('streaming-cursor');
+            const container = document.getElementById('messages');
+            container.scrollTop = container.scrollHeight;
+          } else if (currentEvent === 'done') {
+            try {
+              const info = JSON.parse(data);
+              fullText = info.content || fullText;
+            } catch {}
+          } else if (currentEvent === 'error') {
+            fullText += '\n\n[Error: ' + data + ']';
+          }
+        }
+      }
+    }
+
+    assistantEl.innerHTML = formatContent(fullText);
+    assistantEl.classList.remove('streaming-cursor');
+    loadThreads();
+  } catch (err) {
+    assistantEl.textContent = 'Error: ' + err.message;
+    assistantEl.classList.remove('streaming-cursor');
+  } finally {
+    isStreaming = false;
+    document.getElementById('btn-send').disabled = false;
+  }
+}
+
+function appendMessage(role, content) {
+  const el = document.getElementById('messages');
+  document.getElementById('empty-state').classList.add('hidden');
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.innerHTML = formatContent(content);
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+  return div;
+}
+
+/* ──────────────────────────────────────────
+   Content formatting (basic markdown)
+   ────────────────────────────────────────── */
+function formatContent(text) {
+  if (!text) return '';
+  let html = esc(text);
+
+  // Code blocks: ```...```
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+    '<pre><code>' + code + '</code></pre>'
+  );
+  html = html.replace(/```([\s\S]*?)```/g, (_, code) =>
+    '<pre><code>' + code + '</code></pre>'
+  );
+
+  // Inline code: `...`
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // Bold: **...**
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+  // Italic: *...*
+  html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+
+  // Line breaks -> paragraphs
+  html = html.split(/\n{2,}/).map(p => {
+    if (p.startsWith('<pre>')) return p;
+    return '<p>' + p.replace(/\n/g, '<br>') + '</p>';
+  }).join('');
+
+  return html;
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+/* ──────────────────────────────────────────
+   Textarea auto-resize
+   ────────────────────────────────────────── */
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const ta = document.getElementById('prompt-input');
+  ta.addEventListener('input', () => autoResize(ta));
+});
+
+/* ──────────────────────────────────────────
+   Init: check for existing token
+   ────────────────────────────────────────── */
+(async function init() {
+  if (getToken()) {
+    try {
+      await api('/auth/me');
+      await enterChat();
+      return;
+    } catch {}
+  }
+  showScreen('auth');
+})();
+</script>
+</body>
+</html>
