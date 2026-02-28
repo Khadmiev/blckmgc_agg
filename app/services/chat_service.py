@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import base64
+import logging
 import mimetypes
 import uuid
 from typing import AsyncGenerator
 
 from sqlalchemy import select
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.message import MediaAttachment, Message
 from app.models.thread import Thread
 from app.services.llm.router import get_provider
+from app.services.llm.status import provider_status_tracker
 from app.storage.base import StorageBackend
 
 MAX_HISTORY_MESSAGES = 50
@@ -98,6 +102,11 @@ async def _resolve_attachments(
                                 "image_url": {"url": f"data:{mime};base64,{data}"},
                             })
                             continue
+                        else:
+                            logger.warning("Attachment file missing from storage: %s", att.file_path)
+                    else:
+                        logger.warning("Attachment record not found: %s", att_id)
+                    continue
                 parts.append(part)
             resolved.append({"role": msg["role"], "content": parts})
         else:
@@ -128,6 +137,7 @@ async def stream_llm_response(
             yield {"event": "chunk", "data": chunk}
 
         content = "".join(full_response)
+        provider_status_tracker.record_success(provider.provider_name())
 
         assistant_msg = Message(
             thread_id=thread.id,
@@ -148,6 +158,11 @@ async def stream_llm_response(
             },
         }
     except Exception as exc:
+        try:
+            p = get_provider(thread.llm_name)
+            provider_status_tracker.record_failure(p.provider_name(), str(exc))
+        except ValueError:
+            pass
         yield {"event": "error", "data": str(exc)}
 
 
@@ -189,7 +204,7 @@ async def process_uploaded_files(
 
         media_type = "image" if content_type.startswith("image/") else \
                      "video" if content_type.startswith("video/") else \
-                     "audio" if content_type.startswith("audio/") else "image"
+                     "audio" if content_type.startswith("audio/") else "file"
 
         thumbnail_key = None
         if media_type == "image":

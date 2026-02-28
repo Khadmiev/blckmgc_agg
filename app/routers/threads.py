@@ -45,21 +45,21 @@ async def list_threads(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    last_msg_subq = (
-        select(
-            Message.thread_id,
-            func.substring(
-                func.max(Message.content), 1, 100
-            ).label("preview"),
+    latest_msg = (
+        select(Message.content)
+        .where(
+            Message.thread_id == Thread.id,
+            Message.role.in_(["user", "assistant"]),
         )
-        .where(Message.role.in_(["user", "assistant"]))
-        .group_by(Message.thread_id)
-        .subquery()
+        .order_by(Message.created_at.desc())
+        .limit(1)
+        .correlate(Thread)
+        .scalar_subquery()
     )
+    last_msg_preview = func.substring(latest_msg, 1, 100).label("preview")
 
     stmt = (
-        select(Thread, last_msg_subq.c.preview)
-        .outerjoin(last_msg_subq, Thread.id == last_msg_subq.c.thread_id)
+        select(Thread, last_msg_preview)
         .where(Thread.user_id == user.id, Thread.is_deleted == False)  # noqa: E712
         .order_by(Thread.updated_at.desc())
         .offset(offset)

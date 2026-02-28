@@ -16,7 +16,19 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Path(settings.media_dir).mkdir(parents=True, exist_ok=True)
+
+    # Build the model map (registers providers with the status tracker)
+    from app.services.llm.router import _get_model_map
+    _get_model_map()
+
+    from app.services.llm.status import provider_status_tracker
+    logger.info("Running startup health checks for LLM providers...")
+    await provider_status_tracker.check_all()
+    provider_status_tracker.start_background_checks()
+
     yield
+
+    provider_status_tracker.stop_background_checks()
 
 
 app = FastAPI(
@@ -43,12 +55,13 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-from app.routers import auth, chat, media, threads  # noqa: E402
+from app.routers import auth, chat, llm, media, threads  # noqa: E402
 
 app.include_router(auth.router, prefix=f"{settings.api_v1_prefix}/auth", tags=["auth"])
 app.include_router(threads.router, prefix=f"{settings.api_v1_prefix}/threads", tags=["threads"])
 app.include_router(chat.router, prefix=f"{settings.api_v1_prefix}/chat", tags=["chat"])
 app.include_router(media.router, prefix=f"{settings.api_v1_prefix}/media", tags=["media"])
+app.include_router(llm.router, prefix=f"{settings.api_v1_prefix}/llm", tags=["llm"])
 
 
 @app.get("/health")
