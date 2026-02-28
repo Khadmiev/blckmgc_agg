@@ -6,7 +6,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
-from app.models import User, Thread, Message, MediaAttachment  # noqa: F401
+from app.models import User, Thread, Message, MediaAttachment, ModelPricing  # noqa: F401
 from app.models.base import Base
 
 config = context.config

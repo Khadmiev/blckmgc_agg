@@ -5,7 +5,7 @@ from typing import AsyncGenerator
 
 from mistralai import Mistral
 
-from app.services.llm.base import LLMProvider
+from app.services.llm.base import LLMProvider, TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ class MistralProvider(LLMProvider):
         model: str,
         temperature: float = 0.7,
         max_tokens: int = 4096,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str | TokenUsage, None]:
         try:
             response = await self.client.chat.stream_async(
                 model=model,
@@ -69,10 +69,19 @@ class MistralProvider(LLMProvider):
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
+            usage = None
             async for chunk in response:
                 content = chunk.data.choices[0].delta.content
                 if content:
                     yield content
+                if getattr(chunk.data, "usage", None):
+                    usage = chunk.data.usage
+            if usage:
+                yield TokenUsage(
+                    prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+                    completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+                    total_tokens=getattr(usage, "total_tokens", 0) or 0,
+                )
         except Exception as exc:
             if "mistral" in type(exc).__module__.lower():
                 raise Exception(f"Mistral API error: {exc}") from exc

@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import AsyncGenerator
+
+
+@dataclass(frozen=True, slots=True)
+class TokenUsage:
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
 
 
 class LLMProvider(ABC):
@@ -12,8 +20,8 @@ class LLMProvider(ABC):
         model: str,
         temperature: float = 0.7,
         max_tokens: int = 4096,
-    ) -> AsyncGenerator[str, None]:
-        """Yield text chunks as they arrive from the LLM."""
+    ) -> AsyncGenerator[str | TokenUsage, None]:
+        """Yield text chunks as they arrive, followed by a final TokenUsage."""
         ...
 
     @abstractmethod

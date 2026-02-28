@@ -72,7 +72,7 @@ async def send_message(
     user_msg = await save_user_message(db, thread, prompt, attachments)
 
     async def event_generator():
-        async for event in stream_llm_response(db, thread, user_content, storage):
+        async for event in stream_llm_response(db, thread, user_content, storage, attachments=attachments):
             yield {
                 "event": event["event"],
                 "data": json.dumps(event["data"]) if isinstance(event["data"], dict) else event["data"],
@@ -130,8 +130,10 @@ async def regenerate_response(
         if content_parts:
             user_content = content_parts
 
+    regen_attachments = list(last_user_msg.attachments) if last_user_msg.attachments else None
+
     async def event_generator():
-        async for event in stream_llm_response(db, thread, user_content, storage):
+        async for event in stream_llm_response(db, thread, user_content, storage, attachments=regen_attachments):
             yield {
                 "event": event["event"],
                 "data": json.dumps(event["data"]) if isinstance(event["data"], dict) else event["data"],

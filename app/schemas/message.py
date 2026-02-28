@@ -24,7 +24,10 @@ class MessageResponse(BaseModel):
     role: str
     content: Optional[str]
     model: Optional[str]
-    token_count: Optional[int]
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    token_count: Optional[int] = None
+    cost_usd: Optional[float] = None
     created_at: datetime
     attachments: list[MediaAttachmentResponse] = []
 

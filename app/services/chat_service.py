@@ -14,8 +14,10 @@ from sqlalchemy.orm import selectinload
 
 from app.models.message import MediaAttachment, Message
 from app.models.thread import Thread
+from app.services.llm.base import TokenUsage
 from app.services.llm.router import get_provider
 from app.services.llm.status import provider_status_tracker
+from app.services.pricing_service import MediaCounts, compute_cost, get_current_price
 from app.storage.base import StorageBackend
 
 MAX_HISTORY_MESSAGES = 50
@@ -114,11 +116,36 @@ async def _resolve_attachments(
     return resolved
 
 
+AUDIO_BYTES_PER_SECOND = 16_000  # ~128 kbps
+VIDEO_BYTES_PER_SECOND = 1_000_000  # ~8 Mbps rough estimate
+
+
+def _build_media_counts(attachments: list[MediaAttachment] | None) -> MediaCounts:
+    if not attachments:
+        return MediaCounts()
+    images = 0
+    audio_sec = 0.0
+    video_sec = 0.0
+    for att in attachments:
+        if att.media_type == "image":
+            images += 1
+        elif att.media_type == "audio":
+            audio_sec += att.file_size / AUDIO_BYTES_PER_SECOND
+        elif att.media_type == "video":
+            video_sec += att.file_size / VIDEO_BYTES_PER_SECOND
+    return MediaCounts(
+        image_count=images,
+        audio_seconds=audio_sec,
+        video_seconds=video_sec,
+    )
+
+
 async def stream_llm_response(
     db: AsyncSession,
     thread: Thread,
     user_content: str | list[dict],
     storage: StorageBackend,
+    attachments: list[MediaAttachment] | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Stream LLM response chunks as dicts suitable for SSE serialization.
 
@@ -132,31 +159,53 @@ async def stream_llm_response(
         messages = await build_llm_messages(db, thread, user_content, storage)
 
         full_response: list[str] = []
+        usage: TokenUsage | None = None
         async for chunk in provider.stream_completion(messages, model=thread.llm_name):
-            full_response.append(chunk)
-            yield {"event": "chunk", "data": chunk}
+            if isinstance(chunk, TokenUsage):
+                usage = chunk
+            else:
+                full_response.append(chunk)
+                yield {"event": "chunk", "data": chunk}
 
         content = "".join(full_response)
         provider_status_tracker.record_success(provider.provider_name())
+
+        cost_usd = None
+        if usage:
+            pricing = await get_current_price(db, thread.llm_name)
+            if pricing:
+                media = _build_media_counts(attachments)
+                cost_usd = compute_cost(usage, pricing, media)
 
         assistant_msg = Message(
             thread_id=thread.id,
             role="assistant",
             content=content,
             model=thread.llm_name,
+            prompt_tokens=usage.prompt_tokens if usage else None,
+            completion_tokens=usage.completion_tokens if usage else None,
+            token_count=usage.total_tokens if usage else None,
+            cost_usd=cost_usd,
         )
         db.add(assistant_msg)
         await db.commit()
         await db.refresh(assistant_msg)
 
-        yield {
-            "event": "done",
-            "data": {
-                "content": content,
-                "model": thread.llm_name,
-                "message_id": str(assistant_msg.id),
-            },
+        done_data: dict = {
+            "content": content,
+            "model": thread.llm_name,
+            "message_id": str(assistant_msg.id),
         }
+        if usage:
+            done_data["usage"] = {
+                "prompt_tokens": usage.prompt_tokens,
+                "completion_tokens": usage.completion_tokens,
+                "total_tokens": usage.total_tokens,
+            }
+        if cost_usd is not None:
+            done_data["cost_usd"] = float(cost_usd)
+
+        yield {"event": "done", "data": done_data}
     except Exception as exc:
         try:
             p = get_provider(thread.llm_name)

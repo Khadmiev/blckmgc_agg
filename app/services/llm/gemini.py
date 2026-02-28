@@ -7,7 +7,7 @@ from typing import AsyncGenerator
 from google import genai
 from google.genai import types
 
-from app.services.llm.base import LLMProvider
+from app.services.llm.base import LLMProvider, TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +105,7 @@ class GeminiProvider(LLMProvider):
         model: str,
         temperature: float = 0.7,
         max_tokens: int = 4096,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str | TokenUsage, None]:
         try:
             contents, system_instruction = self._convert_messages(messages)
 
@@ -118,6 +118,7 @@ class GeminiProvider(LLMProvider):
 
             config = types.GenerateContentConfig(**config_kwargs)
 
+            usage_meta = None
             async for chunk in self.client.aio.models.generate_content_stream(
                 model=model,
                 contents=contents,
@@ -125,6 +126,17 @@ class GeminiProvider(LLMProvider):
             ):
                 if chunk.text:
                     yield chunk.text
+                if getattr(chunk, "usage_metadata", None):
+                    usage_meta = chunk.usage_metadata
+            if usage_meta:
+                prompt = getattr(usage_meta, "prompt_token_count", 0) or 0
+                completion = getattr(usage_meta, "candidates_token_count", 0) or 0
+                total = getattr(usage_meta, "total_token_count", 0) or (prompt + completion)
+                yield TokenUsage(
+                    prompt_tokens=prompt,
+                    completion_tokens=completion,
+                    total_tokens=total,
+                )
         except Exception as exc:
             if "google" in type(exc).__module__:
                 raise Exception(f"Google AI API error: {exc}") from exc

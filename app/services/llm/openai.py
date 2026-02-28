@@ -5,7 +5,7 @@ from typing import AsyncGenerator
 
 from openai import AsyncOpenAI, OpenAIError
 
-from app.services.llm.base import LLMProvider
+from app.services.llm.base import LLMProvider, TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class OpenAIProvider(LLMProvider):
         model: str,
         temperature: float = 0.7,
         max_tokens: int = 4096,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str | TokenUsage, None]:
         try:
             response = await self.client.chat.completions.create(
                 model=model,
@@ -71,11 +71,22 @@ class OpenAIProvider(LLMProvider):
                 temperature=temperature,
                 max_tokens=max_tokens,
                 stream=True,
+                stream_options={"include_usage": True},
             )
+            usage = None
             async for chunk in response:
-                delta = chunk.choices[0].delta
-                if delta.content:
-                    yield delta.content
+                if chunk.choices:
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        yield delta.content
+                if chunk.usage:
+                    usage = chunk.usage
+            if usage:
+                yield TokenUsage(
+                    prompt_tokens=usage.prompt_tokens or 0,
+                    completion_tokens=usage.completion_tokens or 0,
+                    total_tokens=usage.total_tokens or 0,
+                )
         except OpenAIError as exc:
             raise Exception(f"OpenAI API error: {exc}") from exc
 

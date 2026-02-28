@@ -58,13 +58,14 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-from app.routers import auth, chat, llm, media, threads  # noqa: E402
+from app.routers import auth, chat, llm, media, pricing, threads  # noqa: E402
 
 app.include_router(auth.router, prefix=f"{settings.api_v1_prefix}/auth", tags=["auth"])
 app.include_router(threads.router, prefix=f"{settings.api_v1_prefix}/threads", tags=["threads"])
 app.include_router(chat.router, prefix=f"{settings.api_v1_prefix}/chat", tags=["chat"])
 app.include_router(media.router, prefix=f"{settings.api_v1_prefix}/media", tags=["media"])
 app.include_router(llm.router, prefix=f"{settings.api_v1_prefix}/llm", tags=["llm"])
+app.include_router(pricing.router, prefix=f"{settings.api_v1_prefix}/pricing", tags=["pricing"])
 
 
 @app.get("/health")

@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     xai_api_key: str = ""
     mistral_api_key: str = ""
 
+    # Pricing administration
+    pricing_api_key: str = ""
+
     # Storage
     storage_backend: str = "local"
     media_dir: str = "media"

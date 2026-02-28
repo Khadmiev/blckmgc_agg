@@ -5,7 +5,7 @@ from typing import AsyncGenerator
 
 from anthropic import AnthropicError, AsyncAnthropic
 
-from app.services.llm.base import LLMProvider
+from app.services.llm.base import LLMProvider, TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class AnthropicProvider(LLMProvider):
         model: str,
         temperature: float = 0.7,
         max_tokens: int = 4096,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str | TokenUsage, None]:
         try:
             system: str | None = None
             filtered: list[dict] = []
@@ -80,6 +80,15 @@ class AnthropicProvider(LLMProvider):
             async with self.client.messages.stream(**kwargs) as stream:
                 async for text in stream.text_stream:
                     yield text
+                final = await stream.get_final_message()
+                if final.usage:
+                    inp = final.usage.input_tokens or 0
+                    out = final.usage.output_tokens or 0
+                    yield TokenUsage(
+                        prompt_tokens=inp,
+                        completion_tokens=out,
+                        total_tokens=inp + out,
+                    )
         except AnthropicError as exc:
             raise Exception(f"Anthropic API error: {exc}") from exc
 
