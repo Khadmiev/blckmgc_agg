@@ -17,13 +17,16 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     Path(settings.media_dir).mkdir(parents=True, exist_ok=True)
 
-    # Build the model map (registers providers with the status tracker)
     from app.services.llm.router import _get_model_map
     _get_model_map()
 
     from app.services.llm.status import provider_status_tracker
     logger.info("Running startup health checks for LLM providers...")
     await provider_status_tracker.check_all()
+
+    logger.info("Fetching live model lists from LLM providers...")
+    await provider_status_tracker.refresh_all_models()
+
     provider_status_tracker.start_background_checks()
 
     yield

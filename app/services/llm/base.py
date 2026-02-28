@@ -22,6 +22,15 @@ class LLMProvider(ABC):
         ...
 
     @abstractmethod
+    async def fetch_models(self) -> list[str]:
+        """Fetch available models from the provider API and update internal state.
+
+        Returns the current model list (live if fetch succeeds, fallback otherwise).
+        Must never raise — failures are handled internally.
+        """
+        ...
+
+    @abstractmethod
     async def health_check(self) -> None:
         """Verify connectivity to the provider. Raise on failure."""
         ...

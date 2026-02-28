@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from typing import AsyncGenerator
 
 from anthropic import AnthropicError, AsyncAnthropic
 
 from app.services.llm.base import LLMProvider
+
+logger = logging.getLogger(__name__)
 
 
 class AnthropicProvider(LLMProvider):
@@ -15,6 +18,7 @@ class AnthropicProvider(LLMProvider):
             raise ValueError("Anthropic API key is not configured")
         self._api_key = api_key
         self._client: AsyncAnthropic | None = None
+        self._live_models: list[str] | None = None
 
     @property
     def client(self) -> AsyncAnthropic:
@@ -28,12 +32,25 @@ class AnthropicProvider(LLMProvider):
     async def health_check(self) -> None:
         try:
             await self.client.messages.create(
-                model=self.MODELS[0],
+                model=self.supported_models()[0],
                 max_tokens=1,
                 messages=[{"role": "user", "content": "hi"}],
             )
         except AnthropicError as exc:
             raise Exception(f"Anthropic health check failed: {exc}") from exc
+
+    async def fetch_models(self) -> list[str]:
+        try:
+            models: list[str] = []
+            async for page in self.client.models.list():
+                if hasattr(page, "id") and page.id.startswith("claude-"):
+                    models.append(page.id)
+            if models:
+                self._live_models = sorted(models)
+                logger.info("Anthropic: fetched %d models", len(models))
+        except Exception:
+            logger.warning("Anthropic: failed to fetch models, using fallback", exc_info=True)
+        return self._live_models if self._live_models is not None else list(self.MODELS)
 
     async def stream_completion(
         self,
@@ -67,4 +84,6 @@ class AnthropicProvider(LLMProvider):
             raise Exception(f"Anthropic API error: {exc}") from exc
 
     def supported_models(self) -> list[str]:
+        if self._live_models is not None:
+            return list(self._live_models)
         return list(self.MODELS)

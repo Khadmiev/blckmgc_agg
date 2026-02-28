@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import AsyncGenerator
 
 from mistralai import Mistral
 
 from app.services.llm.base import LLMProvider
+
+logger = logging.getLogger(__name__)
+
+_EXCLUDED_PREFIXES = ("mistral-embed",)
 
 
 class MistralProvider(LLMProvider):
@@ -15,6 +20,7 @@ class MistralProvider(LLMProvider):
             raise ValueError("Mistral API key is not configured")
         self._api_key = api_key
         self._client: Mistral | None = None
+        self._live_models: list[str] | None = None
 
     @property
     def client(self) -> Mistral:
@@ -30,6 +36,24 @@ class MistralProvider(LLMProvider):
             await self.client.models.list_async()
         except Exception as exc:
             raise Exception(f"Mistral health check failed: {exc}") from exc
+
+    async def fetch_models(self) -> list[str]:
+        try:
+            response = await self.client.models.list_async()
+            items = getattr(response, "data", None) or []
+            models = sorted(
+                {
+                    m.id
+                    for m in items
+                    if not any(m.id.startswith(p) for p in _EXCLUDED_PREFIXES)
+                }
+            )
+            if models:
+                self._live_models = models
+                logger.info("Mistral: fetched %d models", len(models))
+        except Exception:
+            logger.warning("Mistral: failed to fetch models, using fallback", exc_info=True)
+        return self._live_models if self._live_models is not None else list(self.MODELS)
 
     async def stream_completion(
         self,
@@ -55,4 +79,6 @@ class MistralProvider(LLMProvider):
             raise
 
     def supported_models(self) -> list[str]:
+        if self._live_models is not None:
+            return list(self._live_models)
         return list(self.MODELS)

@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 STALE_THRESHOLD_SECONDS = 3600  # 1 hour
 BACKGROUND_CHECK_INTERVAL_SECONDS = 300  # poll every 5 minutes
+MODEL_REFRESH_INTERVAL_SECONDS = 3600  # refresh model lists every hour
 
 
 @dataclass
@@ -20,6 +21,7 @@ class ProviderStatus:
     models: list[str] = field(default_factory=list)
     last_checked: datetime | None = None
     last_success: datetime | None = None
+    last_model_refresh: datetime | None = None
     error: str | None = None
 
     def to_dict(self) -> dict:
@@ -29,6 +31,9 @@ class ProviderStatus:
             "models": self.models,
             "last_checked": self.last_checked.isoformat() if self.last_checked else None,
             "last_success": self.last_success.isoformat() if self.last_success else None,
+            "last_model_refresh": (
+                self.last_model_refresh.isoformat() if self.last_model_refresh else None
+            ),
             "error": self.error,
         }
 
@@ -38,6 +43,11 @@ class ProviderStatusTracker:
         self._statuses: dict[str, ProviderStatus] = {}
         self._providers: dict[str, LLMProvider] = {}
         self._background_task: asyncio.Task | None = None
+        self._models_version: int = 0
+
+    @property
+    def models_version(self) -> int:
+        return self._models_version
 
     def register(self, provider: LLMProvider) -> None:
         name = provider.provider_name()
@@ -92,6 +102,23 @@ class ProviderStatusTracker:
         status.last_checked = datetime.now(timezone.utc)
         status.error = error
 
+    async def refresh_models_for(self, name: str) -> None:
+        """Fetch the live model list for a single provider."""
+        provider = self._providers.get(name)
+        status = self._statuses.get(name)
+        if provider is None or status is None:
+            return
+        models = await provider.fetch_models()
+        status.models = models
+        status.last_model_refresh = datetime.now(timezone.utc)
+
+    async def refresh_all_models(self) -> None:
+        """Fetch live model lists from all providers concurrently."""
+        tasks = [self.refresh_models_for(name) for name in self._providers]
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self._models_version += 1
+        logger.info("Model lists refreshed (version %d)", self._models_version)
+
     async def _check_stale_providers(self) -> None:
         """Re-check providers that haven't had activity for STALE_THRESHOLD_SECONDS."""
         now = datetime.now(timezone.utc)
@@ -103,14 +130,30 @@ class ProviderStatusTracker:
                 logger.info("Provider %s is stale (%.0fs since last success), re-checking", name, elapsed)
                 await self.check_provider(name)
 
+    def _model_refresh_due(self) -> bool:
+        """Check if any provider hasn't had a model refresh within the interval."""
+        now = datetime.now(timezone.utc)
+        for status in self._statuses.values():
+            if status.last_model_refresh is None:
+                return True
+            elapsed = (now - status.last_model_refresh).total_seconds()
+            if elapsed >= MODEL_REFRESH_INTERVAL_SECONDS:
+                return True
+        return False
+
     async def _background_loop(self) -> None:
-        """Periodically check stale providers."""
+        """Periodically check stale providers and refresh model lists."""
         while True:
             await asyncio.sleep(BACKGROUND_CHECK_INTERVAL_SECONDS)
             try:
                 await self._check_stale_providers()
             except Exception:
                 logger.exception("Error in provider status background loop")
+            try:
+                if self._model_refresh_due():
+                    await self.refresh_all_models()
+            except Exception:
+                logger.exception("Error in model refresh background loop")
 
     def start_background_checks(self) -> None:
         if self._background_task is None or self._background_task.done():

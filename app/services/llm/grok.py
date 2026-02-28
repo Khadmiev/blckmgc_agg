@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from typing import AsyncGenerator
 
 from openai import AsyncOpenAI, OpenAIError
 
 from app.services.llm.base import LLMProvider
+
+logger = logging.getLogger(__name__)
 
 XAI_BASE_URL = "https://api.x.ai/v1"
 
@@ -17,6 +20,7 @@ class GrokProvider(LLMProvider):
             raise ValueError("xAI API key is not configured")
         self._api_key = api_key
         self._client: AsyncOpenAI | None = None
+        self._live_models: list[str] | None = None
 
     @property
     def client(self) -> AsyncOpenAI:
@@ -32,6 +36,19 @@ class GrokProvider(LLMProvider):
             await self.client.models.list()
         except OpenAIError as exc:
             raise Exception(f"xAI/Grok health check failed: {exc}") from exc
+
+    async def fetch_models(self) -> list[str]:
+        try:
+            response = await self.client.models.list()
+            models = sorted(
+                {m.id for m in response.data if m.id.startswith("grok-")}
+            )
+            if models:
+                self._live_models = models
+                logger.info("xAI/Grok: fetched %d models", len(models))
+        except Exception:
+            logger.warning("xAI/Grok: failed to fetch models, using fallback", exc_info=True)
+        return self._live_models if self._live_models is not None else list(self.MODELS)
 
     async def stream_completion(
         self,
@@ -56,4 +73,6 @@ class GrokProvider(LLMProvider):
             raise Exception(f"xAI/Grok API error: {exc}") from exc
 
     def supported_models(self) -> list[str]:
+        if self._live_models is not None:
+            return list(self._live_models)
         return list(self.MODELS)

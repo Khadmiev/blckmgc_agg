@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import base64
+import logging
 from typing import AsyncGenerator
 
 from google import genai
 from google.genai import types
 
 from app.services.llm.base import LLMProvider
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiProvider(LLMProvider):
@@ -17,6 +20,7 @@ class GeminiProvider(LLMProvider):
             raise ValueError("Google AI API key is not configured")
         self._api_key = api_key
         self._client: genai.Client | None = None
+        self._live_models: list[str] | None = None
 
     @property
     def client(self) -> genai.Client:
@@ -29,9 +33,27 @@ class GeminiProvider(LLMProvider):
 
     async def health_check(self) -> None:
         try:
-            await self.client.aio.models.get(model=self.MODELS[0])
+            await self.client.aio.models.get(model=self.supported_models()[0])
         except Exception as exc:
             raise Exception(f"Google AI health check failed: {exc}") from exc
+
+    async def fetch_models(self) -> list[str]:
+        try:
+            models: list[str] = []
+            async for m in await self.client.aio.models.list():
+                methods = getattr(m, "supported_generation_methods", []) or []
+                if "generateContent" not in methods:
+                    continue
+                name = m.name or ""
+                short_name = name.removeprefix("models/")
+                if short_name.startswith("gemini-"):
+                    models.append(short_name)
+            if models:
+                self._live_models = sorted(models)
+                logger.info("Gemini: fetched %d models", len(models))
+        except Exception:
+            logger.warning("Gemini: failed to fetch models, using fallback", exc_info=True)
+        return self._live_models if self._live_models is not None else list(self.MODELS)
 
     def _convert_messages(
         self, messages: list[dict]
@@ -109,4 +131,6 @@ class GeminiProvider(LLMProvider):
             raise
 
     def supported_models(self) -> list[str]:
+        if self._live_models is not None:
+            return list(self._live_models)
         return list(self.MODELS)
