@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ssl
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -34,7 +35,8 @@ class Settings(BaseSettings):
         url = self.database_url
         if "localhost" in url or "127.0.0.1" in url:
             return {}
-        return {"ssl": True}
+        ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        return {"ssl": ctx}
 
     # JWT
     jwt_algorithm: str = "HS256"
