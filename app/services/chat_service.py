@@ -212,6 +212,8 @@ async def stream_llm_response(
             prompt_tokens=usage.prompt_tokens if usage else None,
             completion_tokens=usage.completion_tokens if usage else None,
             token_count=usage.total_tokens if usage else None,
+            web_search_calls=usage.web_search_calls if usage else None,
+            tool_calls=usage.tool_calls if usage else None,
             cost_usd=cost_usd,
         )
         db.add(assistant_msg)

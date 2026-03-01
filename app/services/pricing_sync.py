@@ -69,6 +69,7 @@ def _prices_match(
     audio_in: Decimal | None,
     audio_out: Decimal | None,
     video_in: Decimal | None,
+    web_search_per_1k: Decimal | None,
 ) -> bool:
     return (
         existing.input_price_per_million == input_pm
@@ -77,7 +78,23 @@ def _prices_match(
         and existing.audio_input_price_per_million == audio_in
         and existing.audio_output_price_per_million == audio_out
         and existing.video_input_price_per_million == video_in
+        and existing.web_search_call_price_per_thousand == web_search_per_1k
     )
+
+
+def _extract_web_search_price(entry: dict) -> Decimal | None:
+    """Extract web search cost per 1000 calls from LiteLLM search_context_cost_per_query.
+    LiteLLM uses cost per query (e.g. 0.01 = $0.01/query = $10/1000)."""
+    scc = entry.get("search_context_cost_per_query")
+    if not isinstance(scc, dict):
+        return None
+    medium = scc.get("search_context_size_medium")
+    low = scc.get("search_context_size_low")
+    high = scc.get("search_context_size_high")
+    val = medium if medium is not None else (low if low is not None else high)
+    if val is None or val <= 0:
+        return None
+    return (Decimal(str(val)) * 1000).quantize(Decimal("0.01"))
 
 
 async def fetch_litellm_pricing() -> dict:
@@ -153,11 +170,14 @@ async def sync_pricing(db: AsyncSession) -> SyncResult:
         audio_in = _to_per_million(entry.get("input_cost_per_audio_token"))
         audio_out = _to_per_million(entry.get("output_cost_per_audio_token"))
         video_in = _to_per_million(entry.get("input_cost_per_video_token"))
+        web_search_per_1k = _extract_web_search_price(entry)
 
         model_name = _extract_model_name(key)
 
         existing = current_prices.get(model_name)
-        if existing and _prices_match(existing, input_pm, output_pm, image_in, audio_in, audio_out, video_in):
+        if existing and _prices_match(
+            existing, input_pm, output_pm, image_in, audio_in, audio_out, video_in, web_search_per_1k
+        ):
             result.unchanged += 1
             continue
 
@@ -170,6 +190,7 @@ async def sync_pricing(db: AsyncSession) -> SyncResult:
             audio_input_price_per_million=audio_in,
             audio_output_price_per_million=audio_out,
             video_input_price_per_million=video_in,
+            web_search_call_price_per_thousand=web_search_per_1k,
             effective_from=now,
         ))
         result.updated.append(model_name)
@@ -182,3 +203,48 @@ async def sync_pricing(db: AsyncSession) -> SyncResult:
         logger.info("Pricing sync: all prices up to date")
 
     return result
+
+
+# Provider defaults for web search when LiteLLM has no data (per 1000 calls)
+_WEB_SEARCH_DEFAULTS: dict[str, Decimal] = {
+    "openai": Decimal("10.00"),
+    "xai": Decimal("5.00"),
+    "google": Decimal("35.00"),
+    "mistral": Decimal("10.00"),
+}
+
+
+async def backfill_web_search_pricing(db: AsyncSession) -> int:
+    """Set web_search_call_price_per_thousand to provider defaults for rows
+    where it is null. Returns number of rows updated."""
+    now = datetime.now(timezone.utc)
+    latest_sub = (
+        select(
+            ModelPricing.model_name,
+            sa_func.max(ModelPricing.effective_from).label("max_eff"),
+        )
+        .where(ModelPricing.effective_from <= now)
+        .group_by(ModelPricing.model_name)
+        .subquery()
+    )
+    stmt = (
+        select(ModelPricing)
+        .join(
+            latest_sub,
+            (ModelPricing.model_name == latest_sub.c.model_name)
+            & (ModelPricing.effective_from == latest_sub.c.max_eff),
+        )
+        .where(ModelPricing.web_search_call_price_per_thousand.is_(None))
+    )
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+    updated = 0
+    for row in rows:
+        default_val = _WEB_SEARCH_DEFAULTS.get(row.provider)
+        if default_val is not None:
+            row.web_search_call_price_per_thousand = default_val
+            updated += 1
+    if updated:
+        await db.commit()
+        logger.info("Backfill: set web_search_call_price for %d models", updated)
+    return updated

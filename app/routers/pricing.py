@@ -11,7 +11,7 @@ from app.config import settings
 from app.dependencies import get_db
 from app.models.pricing import ModelPricing
 from app.schemas.pricing import PricingBulkCreate, PricingCreate, PricingResponse
-from app.services.pricing_sync import sync_pricing
+from app.services.pricing_sync import backfill_web_search_pricing, sync_pricing
 
 router = APIRouter()
 
@@ -41,6 +41,7 @@ def _row_from_body(body: PricingCreate) -> ModelPricing:
         audio_input_price_per_million=body.audio_input_price_per_million,
         audio_output_price_per_million=body.audio_output_price_per_million,
         video_input_price_per_million=body.video_input_price_per_million,
+        web_search_call_price_per_thousand=body.web_search_call_price_per_thousand,
         effective_from=body.effective_from or datetime.now(timezone.utc),
     )
 
@@ -107,6 +108,17 @@ async def sync_pricing_from_litellm(
 ):
     result = await sync_pricing(db)
     return result.to_dict()
+
+
+@router.post("/backfill-web-search")
+async def backfill_web_search(
+    _key: None = Depends(_require_pricing_key),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set web_search_call_price_per_thousand to provider defaults for models
+    where it is null (when LiteLLM has no search_context_cost data)."""
+    updated = await backfill_web_search_pricing(db)
+    return {"updated": updated}
 
 
 @router.get("/history", response_model=list[PricingResponse])

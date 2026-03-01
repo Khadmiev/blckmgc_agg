@@ -28,6 +28,8 @@ class Message(UUIDPrimaryKey, Base):
     prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     completion_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     token_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    web_search_calls: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    tool_calls: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     cost_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,

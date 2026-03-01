@@ -18,6 +18,7 @@ class PricingCreate(BaseModel):
     audio_input_price_per_million: Optional[float] = None
     audio_output_price_per_million: Optional[float] = None
     video_input_price_per_million: Optional[float] = None
+    web_search_call_price_per_thousand: Optional[float] = None
 
     effective_from: Optional[datetime] = None
 
@@ -40,6 +41,7 @@ class PricingResponse(BaseModel):
     audio_input_price_per_million: Optional[float] = None
     audio_output_price_per_million: Optional[float] = None
     video_input_price_per_million: Optional[float] = None
+    web_search_call_price_per_thousand: Optional[float] = None
 
     effective_from: datetime
     created_at: datetime
