@@ -20,7 +20,10 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # Must use postgres hostname (service name) inside Docker network
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/lpo
+    env_file:
+      - .env
     volumes:
       - ./media:/app/media
     depends_on:
