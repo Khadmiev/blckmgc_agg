@@ -20,6 +20,23 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/lpo"
 
+    @property
+    def database_url_for_engine(self) -> str:
+        """Normalize URL for SQLAlchemy asyncpg: ensure +asyncpg and SSL for cloud Postgres (e.g. Render)."""
+        url = self.database_url
+        if url.startswith("postgresql://") and "+asyncpg" not in url:
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        # Render and most cloud Postgres require SSL; localhost does not
+        if "localhost" not in url and "127.0.0.1" not in url:
+            from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+            parsed = urlparse(url)
+            qs = parse_qs(parsed.query)
+            if "sslmode" not in qs and "ssl" not in qs:
+                qs["sslmode"] = ["require"]
+            new_query = urlencode(qs, doseq=True)
+            url = urlunparse(parsed._replace(query=new_query))
+        return url
+
     # JWT
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 30
