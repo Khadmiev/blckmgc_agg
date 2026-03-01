@@ -5,9 +5,12 @@ from typing import AsyncGenerator
 
 from anthropic import AnthropicError, AsyncAnthropic
 
+from app.config import settings
 from app.services.llm.base import LLMProvider, TokenUsage
 
 logger = logging.getLogger(__name__)
+
+_WEB_SEARCH_TOOL = {"type": "web_search_20260209", "name": "web_search"}
 
 
 class AnthropicProvider(LLMProvider):
@@ -76,6 +79,8 @@ class AnthropicProvider(LLMProvider):
             }
             if system:
                 kwargs["system"] = system
+            if settings.use_response_apis:
+                kwargs["tools"] = [_WEB_SEARCH_TOOL]
 
             async with self.client.messages.stream(**kwargs) as stream:
                 async for text in stream.text_stream:

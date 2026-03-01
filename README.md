@@ -10,6 +10,7 @@ REST API backend for a mobile chat application with multi-LLM support.
 - **Multimedia** — Image, video, and audio attachments with thumbnail generation
 - **Thread management** — Create, list, update, and soft-delete chat threads
 - **History context** — Full thread history sent to LLMs for contextual responses
+- **Response/agent APIs** — Uses vendor APIs with web search when enabled: OpenAI Responses API, Anthropic web search, Gemini Google Search grounding (xAI/Mistral use chat completions)
 
 ## Tech Stack
 
@@ -119,6 +120,7 @@ Key variables:
 | `GOOGLE_AI_API_KEY` | Google AI (Gemini) API key           |
 | `XAI_API_KEY`       | xAI (Grok) API key                   |
 | `MISTRAL_API_KEY`   | Mistral API key                      |
+| `USE_RESPONSE_APIS` | `true` (default): use web search/grounding where available |
 | `STORAGE_BACKEND`   | `local` (default) or future: `s3`    |
 
 Only configure API keys for the LLM providers you want to use. Models from unconfigured providers are simply unavailable.

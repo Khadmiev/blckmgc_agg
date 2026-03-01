@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     apple_key_id: str = ""
     apple_private_key: str = ""
 
+    # LLM: use vendor response/agent APIs (web search, grounding) when available
+    use_response_apis: bool = True
+
     # LLM API keys
     openai_api_key: str = ""
     anthropic_api_key: str = ""

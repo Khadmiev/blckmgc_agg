@@ -7,9 +7,22 @@ from typing import AsyncGenerator
 from google import genai
 from google.genai import types
 
+from app.config import settings
 from app.services.llm.base import LLMProvider, TokenUsage
 
 logger = logging.getLogger(__name__)
+
+def _get_google_search_tool():
+    """Google Search grounding tool for Gemini. Returns None if not available."""
+    try:
+        if hasattr(types, "Tool") and hasattr(types, "GoogleSearch"):
+            return types.Tool(google_search=types.GoogleSearch())
+    except Exception:
+        pass
+    return None
+
+
+_GOOGLE_SEARCH_TOOL = _get_google_search_tool()
 
 
 class GeminiProvider(LLMProvider):
@@ -115,6 +128,8 @@ class GeminiProvider(LLMProvider):
             }
             if system_instruction:
                 config_kwargs["system_instruction"] = system_instruction
+            if settings.use_response_apis and _GOOGLE_SEARCH_TOOL:
+                config_kwargs["tools"] = [_GOOGLE_SEARCH_TOOL]
 
             config = types.GenerateContentConfig(**config_kwargs)
 
