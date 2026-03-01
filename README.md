@@ -10,7 +10,7 @@ REST API backend for a mobile chat application with multi-LLM support.
 - **Multimedia** — Image, video, and audio attachments with thumbnail generation
 - **Thread management** — Create, list, update, and soft-delete chat threads
 - **History context** — Full thread history sent to LLMs for contextual responses
-- **Response/agent APIs** — Uses vendor APIs with web search when enabled: OpenAI Responses API, Anthropic web search, Gemini Google Search grounding (xAI/Mistral use chat completions)
+- **Response/agent APIs** — Uses vendor APIs with web search when enabled: OpenAI Responses API, Anthropic web search, Gemini Google Search grounding, xAI Responses API, Mistral Conversations API (beta)
 
 ## Tech Stack
 

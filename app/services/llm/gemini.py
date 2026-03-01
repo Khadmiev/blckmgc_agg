@@ -134,6 +134,7 @@ class GeminiProvider(LLMProvider):
             config = types.GenerateContentConfig(**config_kwargs)
 
             usage_meta = None
+            last_chunk = None
             async for chunk in self.client.aio.models.generate_content_stream(
                 model=model,
                 contents=contents,
@@ -143,6 +144,19 @@ class GeminiProvider(LLMProvider):
                     yield chunk.text
                 if getattr(chunk, "usage_metadata", None):
                     usage_meta = chunk.usage_metadata
+                last_chunk = chunk
+            web_search_calls = 0
+            if settings.use_response_apis and _GOOGLE_SEARCH_TOOL and last_chunk:
+                gm = getattr(last_chunk, "grounding_metadata", None)
+                if gm is None:
+                    cands = getattr(last_chunk, "candidates", None)
+                    if cands:
+                        gm = getattr(cands[0], "grounding_metadata", None)
+                if gm:
+                    has_queries = getattr(gm, "web_search_queries", None) or getattr(gm, "webSearchQueries", None)
+                    has_chunks = getattr(gm, "grounding_chunks", None) or getattr(gm, "groundingChunks", None)
+                    if has_queries or has_chunks:
+                        web_search_calls = 1
             if usage_meta:
                 prompt = getattr(usage_meta, "prompt_token_count", 0) or 0
                 completion = getattr(usage_meta, "candidates_token_count", 0) or 0
@@ -151,6 +165,8 @@ class GeminiProvider(LLMProvider):
                     prompt_tokens=prompt,
                     completion_tokens=completion,
                     total_tokens=total,
+                    web_search_calls=web_search_calls,
+                    tool_calls=web_search_calls,
                 )
         except Exception as exc:
             if "google" in type(exc).__module__:

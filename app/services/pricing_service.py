@@ -91,4 +91,21 @@ def compute_cost(
         + Decimal(usage.completion_tokens) * output_rate
     ) / _ONE_MILLION
 
+    # Tool/agent costs (e.g. web search: OpenAI $10/1000, xAI $5/1000, Gemini $35/1000, Mistral ~$10/1000, Anthropic varies)
+    if usage.web_search_calls > 0:
+        rate = pricing.web_search_call_price_per_thousand
+        if rate is None:
+            if pricing.provider == "openai":
+                rate = Decimal("10.00")  # OpenAI web search default
+            elif pricing.provider == "xai":
+                rate = Decimal("5.00")  # xAI agent tools (web search, x_search, etc.)
+            elif pricing.provider == "google":
+                rate = Decimal("35.00")  # Gemini grounding with Google Search
+            elif pricing.provider == "mistral":
+                rate = Decimal("10.00")  # Mistral web_search connector (premium ~$30/1000)
+        if rate is not None:
+            cost += (
+                Decimal(usage.web_search_calls) * rate / Decimal("1000")
+            )
+
     return cost.quantize(Decimal("0.000001"))

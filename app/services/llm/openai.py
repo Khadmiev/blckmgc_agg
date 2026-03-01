@@ -116,11 +116,18 @@ class OpenAIProvider(LLMProvider):
         if text:
             yield text
         usage = getattr(response, "usage", None)
+        web_search_calls = 0
+        if hasattr(response, "output") and response.output:
+            for item in response.output:
+                if getattr(item, "type", None) == "web_search_call":
+                    web_search_calls += 1
         if usage:
             yield TokenUsage(
                 prompt_tokens=getattr(usage, "input_tokens", 0) or 0,
                 completion_tokens=getattr(usage, "output_tokens", 0) or 0,
                 total_tokens=getattr(usage, "total_tokens", 0) or 0,
+                web_search_calls=web_search_calls,
+                tool_calls=web_search_calls,
             )
 
     async def _stream_chat_completions(

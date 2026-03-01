@@ -42,6 +42,10 @@ class ModelPricing(UUIDPrimaryKey, Base):
     video_input_price_per_million: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(12, 6), nullable=True,
     )
+    # Tool/agent costs (e.g. OpenAI web search: $10/1000 calls)
+    web_search_call_price_per_thousand: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(12, 6), nullable=True,
+    )
 
     effective_from: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,

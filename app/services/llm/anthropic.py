@@ -89,10 +89,17 @@ class AnthropicProvider(LLMProvider):
                 if final.usage:
                     inp = final.usage.input_tokens or 0
                     out = final.usage.output_tokens or 0
+                    tool_calls = 0
+                    if hasattr(final, "content") and final.content:
+                        for block in final.content:
+                            if getattr(block, "type", None) == "tool_use":
+                                tool_calls += 1
                     yield TokenUsage(
                         prompt_tokens=inp,
                         completion_tokens=out,
                         total_tokens=inp + out,
+                        web_search_calls=tool_calls if settings.use_response_apis else 0,
+                        tool_calls=tool_calls,
                     )
         except AnthropicError as exc:
             raise Exception(f"Anthropic API error: {exc}") from exc

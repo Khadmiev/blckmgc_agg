@@ -10,6 +10,9 @@ class TokenUsage:
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+    # Tool/agent usage (when available from vendor API)
+    web_search_calls: int = 0
+    tool_calls: int = 0
 
 
 class LLMProvider(ABC):
