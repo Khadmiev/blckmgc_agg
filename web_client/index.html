@@ -243,9 +243,15 @@ a{color:var(--accent);text-decoration:none}
     <h2>New Thread</h2>
     <form id="new-thread-form" onsubmit="createThread(event)">
       <div class="form-group">
+        <label>Vendor</label>
+        <select id="input-thread-vendor" required onchange="onThreadVendorChange()">
+          <option value="" disabled selected>Loading...</option>
+        </select>
+      </div>
+      <div class="form-group">
         <label>Model</label>
         <select id="input-thread-model" required>
-          <option value="" disabled selected>Loading models...</option>
+          <option value="" disabled selected>Select vendor first</option>
         </select>
       </div>
       <div class="modal-actions">
@@ -510,18 +516,44 @@ function formatFileSize(bytes) {
 /* ──────────────────────────────────────────
    New Thread modal
    ────────────────────────────────────────── */
+let threadModelsByVendor = {};
+
 async function openNewThreadModal() {
   document.getElementById('modal-overlay').classList.remove('hidden');
-  const select = document.getElementById('input-thread-model');
-  select.innerHTML = '<option value="" disabled selected>Loading...</option>';
+  const vendorSelect = document.getElementById('input-thread-vendor');
+  const modelSelect = document.getElementById('input-thread-model');
+  vendorSelect.innerHTML = '<option value="" disabled selected>Loading...</option>';
+  modelSelect.innerHTML = '<option value="" disabled selected>Select vendor first</option>';
   try {
     const models = await api('/llm/models');
-    select.innerHTML = models.map(m =>
-      `<option value="${esc(m.model)}">${esc(m.model)} (${esc(m.provider)})</option>`
+    threadModelsByVendor = {};
+    for (const m of models) {
+      const p = m.provider || 'unknown';
+      if (!threadModelsByVendor[p]) threadModelsByVendor[p] = [];
+      threadModelsByVendor[p].push(m.model);
+    }
+    const vendors = Object.keys(threadModelsByVendor).sort();
+    vendorSelect.innerHTML = vendors.map(v =>
+      `<option value="${esc(v)}">${esc(v)}</option>`
     ).join('');
+    onThreadVendorChange();
   } catch {
-    select.innerHTML = '<option value="" disabled selected>Failed to load</option>';
+    vendorSelect.innerHTML = '<option value="" disabled selected>Failed to load</option>';
   }
+}
+
+function onThreadVendorChange() {
+  const vendorSelect = document.getElementById('input-thread-vendor');
+  const modelSelect = document.getElementById('input-thread-model');
+  const vendor = vendorSelect.value;
+  if (!vendor || !threadModelsByVendor[vendor]) {
+    modelSelect.innerHTML = '<option value="" disabled selected>Select vendor first</option>';
+    return;
+  }
+  const models = threadModelsByVendor[vendor];
+  modelSelect.innerHTML = models.map(m =>
+    `<option value="${esc(m)}">${esc(m)}</option>`
+  ).join('');
 }
 
 function closeModal(e) {
