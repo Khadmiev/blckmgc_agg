@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,6 +14,27 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _check_database_url() -> None:
+    """Fail fast on Render when DATABASE_URL is misconfigured."""
+    if os.getenv("RENDER") != "true":
+        return
+    url = settings.database_url
+    if "localhost" in url or "127.0.0.1" in url:
+        print(
+            "\n"
+            "FATAL: DATABASE_URL is not set for Render.\n"
+            "\n"
+            "Fix: Add DATABASE_URL to your web service:\n"
+            "  1. Render Dashboard → your web service → Environment\n"
+            "  2. Add Environment Variable → Add from Render\n"
+            "  3. Select your PostgreSQL database → Internal Database URL\n"
+            "\n"
+            "Or create a new deployment via Blueprint (New → Blueprint) to auto-link the database.\n",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def _db_host_from_url(url: str) -> str:
@@ -26,6 +49,7 @@ def _db_host_from_url(url: str) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _check_database_url()
     Path(settings.media_dir).mkdir(parents=True, exist_ok=True)
 
     db_host = _db_host_from_url(settings.database_url)
