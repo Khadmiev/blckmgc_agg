@@ -1,0 +1,22 @@
+# Render Blueprint - deploy with: New > Blueprint > Connect this repo
+# See: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: blckmgc-agg
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: blckmgc-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PRICING_API_KEY
+        generateValue: true
+
+databases:
+  - name: blckmgc-db
+    plan: free

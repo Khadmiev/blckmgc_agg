@@ -55,6 +55,15 @@ docker compose up -d
 
 To pass API keys and other env vars, create a `.env` file and add `env_file: .env` under the `app` service in `docker-compose.yml`, or set them in the `environment` section.
 
+## Render Deployment
+
+1. **Create a PostgreSQL database** on Render: Dashboard → New → PostgreSQL.
+2. **Create a Web Service** from this repo (Docker runtime).
+3. **Link the database** to the web service: Environment → Add Environment Variable → `DATABASE_URL` from your Postgres (use the **Internal** connection string).
+4. Or use the **Blueprint**: New → Blueprint → connect this repo (uses `render.yaml`).
+
+After deploy, verify the database: `https://your-app.onrender.com/health/db`. If it returns 503, `DATABASE_URL` is missing or incorrect.
+
 ## API Overview
 
 All endpoints are prefixed with `/api/v1`.

@@ -84,7 +84,31 @@ app.include_router(pricing.router, prefix=f"{settings.api_v1_prefix}/pricing", t
 
 @app.get("/health")
 async def health():
+    """Basic health check. Use /health/db to verify database connectivity."""
     return {"status": "ok"}
+
+
+@app.get("/health/db")
+async def health_db():
+    """Verify database connection. Returns 503 if DATABASE_URL is misconfigured or unreachable."""
+    from sqlalchemy import text
+
+    from app.database import async_session_factory
+
+    try:
+        async with async_session_factory() as db:
+            await db.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.exception("Database health check failed")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "detail": "Database connection failed. Ensure DATABASE_URL is set in your environment (e.g. Render: add a PostgreSQL database and link it to this service).",
+                "error": str(e),
+            },
+        )
+    return {"status": "ok", "database": "connected"}
 
 
 @app.get("/")
