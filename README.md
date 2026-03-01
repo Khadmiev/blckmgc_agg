@@ -51,9 +51,7 @@ docker compose up -d
 ```
 
 - **App**: http://localhost:8000
-- **PostgreSQL**: exposed on port **5433** (host) for external access (e.g. `postgresql://postgres:postgres@localhost:5433/lpo`)
-
-To pass API keys and other env vars, create a `.env` file and add `env_file: .env` under the `app` service in `docker-compose.yml`, or set them in the `environment` section.
+- Uses external PostgreSQL (e.g. Render). Set `DATABASE_URL` in `.env` — use the **External** URL for local Docker.
 
 ## Render Deployment
 
