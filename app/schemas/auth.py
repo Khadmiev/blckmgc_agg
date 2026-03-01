@@ -49,3 +49,7 @@ class UserResponse(BaseModel):
 class UserUpdate(BaseModel):
     username: Optional[str] = None
     avatar_url: Optional[str] = None
+
+
+class UserUsageResponse(BaseModel):
+    total_spent_usd: float

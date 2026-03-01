@@ -444,6 +444,7 @@ async def process_uploaded_files(
         att = MediaAttachment(
             media_type=media_type,
             file_path=key,
+            original_filename=original_name,
             mime_type=content_type,
             file_size=len(data),
             thumbnail_path=thumbnail_key,

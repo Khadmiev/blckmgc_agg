@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db
+from app.models.message import Message
+from app.models.thread import Thread
 from app.models.user import User
 from app.schemas.auth import (
     OAuthAppleRequest,
@@ -14,6 +19,7 @@ from app.schemas.auth import (
     UserRegister,
     UserResponse,
     UserUpdate,
+    UserUsageResponse,
 )
 from app.services.auth_service import (
     authenticate_user,
@@ -106,3 +112,21 @@ async def update_me(
     await db.commit()
     await db.refresh(user)
     return user
+
+
+@router.get("/usage", response_model=UserUsageResponse)
+async def get_usage(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return total USD spent on LLM interactions for the current user."""
+    total = (
+        select(func.coalesce(func.sum(Message.cost_usd), Decimal("0")))
+        .select_from(Message)
+        .join(Thread, Thread.id == Message.thread_id)
+        .where(Thread.user_id == user.id)
+        .where(Thread.is_deleted == False)
+    )
+    result = await db.execute(total)
+    value = result.scalar() or Decimal("0")
+    return UserUsageResponse(total_spent_usd=float(value))

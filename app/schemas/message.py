@@ -14,6 +14,7 @@ class MediaAttachmentResponse(BaseModel):
     media_type: str
     mime_type: str
     file_size: int
+    original_filename: Optional[str] = None
     has_thumbnail: bool = False
 
 

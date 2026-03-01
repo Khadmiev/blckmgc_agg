@@ -44,6 +44,17 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 API docs are available at `http://localhost:8000/docs` (Swagger UI).
 
+## Docker
+
+```bash
+docker compose up -d
+```
+
+- **App**: http://localhost:8000
+- **PostgreSQL**: exposed on port **5433** (host) for external access (e.g. `postgresql://postgres:postgres@localhost:5433/lpo`)
+
+To pass API keys and other env vars, create a `.env` file and add `env_file: .env` under the `app` service in `docker-compose.yml`, or set them in the `environment` section.
+
 ## API Overview
 
 All endpoints are prefixed with `/api/v1`.

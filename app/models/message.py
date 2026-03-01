@@ -47,6 +47,7 @@ class MediaAttachment(UUIDPrimaryKey, Base):
     )
     media_type: Mapped[str] = mapped_column(String(20), nullable=False)
     file_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    original_filename: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     thumbnail_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
@@ -56,3 +57,7 @@ class MediaAttachment(UUIDPrimaryKey, Base):
     )
 
     message: Mapped[Message] = relationship("Message", back_populates="attachments")
+
+    @property
+    def has_thumbnail(self) -> bool:
+        return bool(self.thumbnail_path)
