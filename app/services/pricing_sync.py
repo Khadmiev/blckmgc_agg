@@ -214,9 +214,22 @@ _WEB_SEARCH_DEFAULTS: dict[str, Decimal] = {
 }
 
 
-async def backfill_web_search_pricing(db: AsyncSession) -> int:
-    """Set web_search_call_price_per_thousand to provider defaults for rows
-    where it is null. Returns number of rows updated."""
+async def backfill_web_search_pricing(
+    db: AsyncSession,
+    use_scraper: bool = True,
+) -> int:
+    """Set web_search_call_price_per_thousand for rows where it is null.
+    Uses: (1) scraped vendor pages if use_scraper, (2) provider defaults.
+    Returns number of rows updated."""
+    from app.services.pricing_scraper import get_scraped_web_search_prices
+
+    scraped: dict[str, Decimal] = {}
+    if use_scraper:
+        try:
+            scraped = await get_scraped_web_search_prices()
+        except Exception as exc:
+            logger.warning("Pricing scraper failed, using defaults: %s", exc)
+
     now = datetime.now(timezone.utc)
     latest_sub = (
         select(
@@ -240,9 +253,9 @@ async def backfill_web_search_pricing(db: AsyncSession) -> int:
     rows = result.scalars().all()
     updated = 0
     for row in rows:
-        default_val = _WEB_SEARCH_DEFAULTS.get(row.provider)
-        if default_val is not None:
-            row.web_search_call_price_per_thousand = default_val
+        val = scraped.get(row.provider) or _WEB_SEARCH_DEFAULTS.get(row.provider)
+        if val is not None:
+            row.web_search_call_price_per_thousand = val
             updated += 1
     if updated:
         await db.commit()

@@ -11,6 +11,7 @@ from app.config import settings
 from app.dependencies import get_db
 from app.models.pricing import ModelPricing
 from app.schemas.pricing import PricingBulkCreate, PricingCreate, PricingResponse
+from app.services.pricing_scraper import scrape_web_search_pricing
 from app.services.pricing_sync import backfill_web_search_pricing, sync_pricing
 
 router = APIRouter()
@@ -112,13 +113,31 @@ async def sync_pricing_from_litellm(
 
 @router.post("/backfill-web-search")
 async def backfill_web_search(
+    use_scraper: bool = Query(True, description="Scrape vendor pages first, then fall back to defaults"),
     _key: None = Depends(_require_pricing_key),
     db: AsyncSession = Depends(get_db),
 ):
-    """Set web_search_call_price_per_thousand to provider defaults for models
-    where it is null (when LiteLLM has no search_context_cost data)."""
-    updated = await backfill_web_search_pricing(db)
+    """Set web_search_call_price_per_thousand for models where it is null.
+    Uses: (1) scraped vendor pages if use_scraper, (2) provider defaults."""
+    updated = await backfill_web_search_pricing(db, use_scraper=use_scraper)
     return {"updated": updated}
+
+
+@router.get("/scrape-web-search")
+async def scrape_web_search_prices(
+    _key: None = Depends(_require_pricing_key),
+):
+    """Scrape vendor pricing pages for web search/tool pricing. Returns raw results
+    without persisting. Use backfill-web-search to apply to DB."""
+    results = await scrape_web_search_pricing()
+    return {
+        r.provider: {
+            "price_per_thousand": float(r.price_per_thousand) if r.price_per_thousand else None,
+            "source": r.source,
+            "error": r.error,
+        }
+        for r in results.values()
+    }
 
 
 @router.get("/history", response_model=list[PricingResponse])
