@@ -36,6 +36,8 @@ class Settings(BaseSettings):
         if "localhost" in url or "127.0.0.1" in url:
             return {}
         ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
         return {"ssl": ctx}
 
     # JWT
