@@ -14,9 +14,26 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _db_host_from_url(url: str) -> str:
+    """Extract host from DATABASE_URL for logging (no credentials)."""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        return parsed.hostname or parsed.path.split("@")[-1].split("/")[0].split(":")[0] or "?"
+    except Exception:
+        return "?"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Path(settings.media_dir).mkdir(parents=True, exist_ok=True)
+
+    db_host = _db_host_from_url(settings.database_url)
+    logger.info("Database host: %s", db_host)
+    if "localhost" in settings.database_url or "127.0.0.1" in settings.database_url:
+        logger.warning(
+            "DATABASE_URL points to localhost. On Render/cloud, set DATABASE_URL to your Postgres Internal URL (Dashboard → Postgres → Connect)."
+        )
 
     from app.services.llm.router import _get_model_map
     _get_model_map()
