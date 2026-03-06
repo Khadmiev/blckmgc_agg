@@ -10,7 +10,7 @@ from app.services.llm.base import LLMProvider, TokenUsage
 
 logger = logging.getLogger(__name__)
 
-_CHAT_PREFIXES = ("gpt-3.5-turbo", "gpt-4", "o1", "o3", "o4", "chatgpt")
+_CHAT_PREFIXES = ("gpt-", "o1", "o3", "o4", "chatgpt")
 _EXCLUDED_KEYWORDS = ("realtime", "audio", "search")
 
 _RESPONSE_TOOLS = [{"type": "web_search"}]
@@ -22,7 +22,7 @@ def _messages_to_input(messages: list[dict]) -> list[dict]:
 
 
 class OpenAIProvider(LLMProvider):
-    MODELS = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1", "o3-mini"]
+    MODELS = ["gpt-5.1", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1", "o3-mini"]
 
     def __init__(self, api_key: str) -> None:
         if not api_key:
