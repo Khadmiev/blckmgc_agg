@@ -31,6 +31,7 @@ class OpenAIProvider(LLMProvider):
         self._client: AsyncOpenAI | None = None
         self._live_models: list[str] | None = None
         self._token_param_cache: dict[str, str] = {}  # model -> "max_tokens" | "max_completion_tokens"
+        self._temperature_default_only: set[str] = set()  # models that only support temperature=1
 
     @property
     def client(self) -> AsyncOpenAI:
@@ -77,6 +78,14 @@ class OpenAIProvider(LLMProvider):
             return "max_tokens"
         return None
 
+    def _handle_temperature_error(self, model: str, exc: Exception) -> bool:
+        """If exc indicates temperature not supported (only default 1 allowed), cache and return True for retry."""
+        msg = str(exc).lower()
+        if "temperature" in msg and ("default" in msg or "only" in msg or "does not support" in msg):
+            self._temperature_default_only.add(model)
+            return True
+        return False
+
     async def fetch_models(self) -> list[str]:
         try:
             response = await self.client.models.list()
@@ -116,19 +125,29 @@ class OpenAIProvider(LLMProvider):
     ) -> AsyncGenerator[str | TokenUsage, None]:
         """Use Responses API with web search and other agent tools."""
         input_items = _messages_to_input(messages)
-        try:
-            response = await self.client.responses.create(
-                model=model,
-                input=input_items,
-                tools=_RESPONSE_TOOLS,
-                temperature=temperature,
-                max_output_tokens=max_tokens,
-            )
-        except (AttributeError, TypeError, OpenAIError) as e:
-            logger.warning("OpenAI Responses API not available, falling back to Chat: %s", e)
-            async for item in self._stream_chat_completions(messages, model, temperature, max_tokens):
-                yield item
-            return
+        use_temp = model not in self._temperature_default_only
+        while True:
+            try:
+                kwargs: dict = {
+                    "model": model,
+                    "input": input_items,
+                    "tools": _RESPONSE_TOOLS,
+                    "max_output_tokens": max_tokens,
+                }
+                if use_temp:
+                    kwargs["temperature"] = temperature
+                response = await self.client.responses.create(**kwargs)
+                break
+            except (AttributeError, TypeError) as e:
+                logger.warning("OpenAI Responses API not available, falling back to Chat: %s", e)
+                async for item in self._stream_chat_completions(messages, model, temperature, max_tokens):
+                    yield item
+                return
+            except OpenAIError as e:
+                if self._handle_temperature_error(model, e):
+                    use_temp = False
+                    continue
+                raise
         text = ""
         if hasattr(response, "output") and response.output:
             for item in response.output:
@@ -162,30 +181,31 @@ class OpenAIProvider(LLMProvider):
         temperature: float,
         max_tokens: int,
     ) -> AsyncGenerator[str | TokenUsage, None]:
-        """Fallback: Chat Completions API. Token param (max_tokens vs max_completion_tokens) is detected on first use and cached."""
+        """Fallback: Chat Completions API. Token param and temperature support are detected on first use and cached."""
         token_param = self._get_token_param(model, max_tokens)
-        try:
-            response = await self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                stream=True,
-                stream_options={"include_usage": True},
-                **token_param,
-            )
-        except OpenAIError as exc:
-            correct = self._handle_token_param_error(model, exc)
-            if correct is None:
+        use_temp = model not in self._temperature_default_only
+        while True:
+            try:
+                kwargs: dict = {
+                    "model": model,
+                    "messages": messages,
+                    "stream": True,
+                    "stream_options": {"include_usage": True},
+                    **token_param,
+                }
+                if use_temp:
+                    kwargs["temperature"] = temperature
+                response = await self.client.chat.completions.create(**kwargs)
+                break
+            except OpenAIError as exc:
+                correct = self._handle_token_param_error(model, exc)
+                if correct is not None:
+                    token_param = {"max_completion_tokens": max_tokens} if correct == "max_completion_tokens" else {"max_tokens": max_tokens}
+                    continue
+                if self._handle_temperature_error(model, exc):
+                    use_temp = False
+                    continue
                 raise
-            token_param = {"max_completion_tokens": max_tokens} if correct == "max_completion_tokens" else {"max_tokens": max_tokens}
-            response = await self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                stream=True,
-                stream_options={"include_usage": True},
-                **token_param,
-            )
         if model not in self._token_param_cache:
             self._token_param_cache[model] = "max_tokens" if "max_tokens" in token_param else "max_completion_tokens"
         usage = None
