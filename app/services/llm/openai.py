@@ -30,6 +30,7 @@ class OpenAIProvider(LLMProvider):
         self._api_key = api_key
         self._client: AsyncOpenAI | None = None
         self._live_models: list[str] | None = None
+        self._token_param_cache: dict[str, str] = {}  # model -> "max_tokens" | "max_completion_tokens"
 
     @property
     def client(self) -> AsyncOpenAI:
@@ -51,6 +52,30 @@ class OpenAIProvider(LLMProvider):
         if any(kw in model_id for kw in _EXCLUDED_KEYWORDS):
             return False
         return any(model_id.startswith(p) for p in _CHAT_PREFIXES)
+
+    def _get_token_param(self, model: str, max_tokens: int) -> dict[str, int]:
+        """Return the token param dict for this model; uses cache after first successful use."""
+        param = self._token_param_cache.get(model)
+        if param == "max_completion_tokens":
+            return {"max_completion_tokens": max_tokens}
+        if param == "max_tokens":
+            return {"max_tokens": max_tokens}
+        return {"max_tokens": max_tokens}  # default for first attempt
+
+    def _handle_token_param_error(self, model: str, exc: Exception) -> str | None:
+        """If exc indicates wrong token param, return the correct one and cache it."""
+        msg = str(exc)
+        if "instead" not in msg:
+            return None
+        # Recommended param is the one right before "instead" (e.g. "Use 'max_completion_tokens' instead")
+        before_instead = msg.split("instead")[0].strip().rstrip("'").strip()
+        if before_instead.endswith("max_completion_tokens"):
+            self._token_param_cache[model] = "max_completion_tokens"
+            return "max_completion_tokens"
+        if before_instead.endswith("max_tokens"):
+            self._token_param_cache[model] = "max_tokens"
+            return "max_tokens"
+        return None
 
     async def fetch_models(self) -> list[str]:
         try:
@@ -137,15 +162,32 @@ class OpenAIProvider(LLMProvider):
         temperature: float,
         max_tokens: int,
     ) -> AsyncGenerator[str | TokenUsage, None]:
-        """Fallback: Chat Completions API."""
-        response = await self.client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-            stream_options={"include_usage": True},
-        )
+        """Fallback: Chat Completions API. Token param (max_tokens vs max_completion_tokens) is detected on first use and cached."""
+        token_param = self._get_token_param(model, max_tokens)
+        try:
+            response = await self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                stream=True,
+                stream_options={"include_usage": True},
+                **token_param,
+            )
+        except OpenAIError as exc:
+            correct = self._handle_token_param_error(model, exc)
+            if correct is None:
+                raise
+            token_param = {"max_completion_tokens": max_tokens} if correct == "max_completion_tokens" else {"max_tokens": max_tokens}
+            response = await self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                stream=True,
+                stream_options={"include_usage": True},
+                **token_param,
+            )
+        if model not in self._token_param_cache:
+            self._token_param_cache[model] = "max_tokens" if "max_tokens" in token_param else "max_completion_tokens"
         usage = None
         async for chunk in response:
             if chunk.choices:
