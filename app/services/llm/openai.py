@@ -79,9 +79,9 @@ class OpenAIProvider(LLMProvider):
         return None
 
     def _handle_temperature_error(self, model: str, exc: Exception) -> bool:
-        """If exc indicates temperature not supported (only default 1 allowed), cache and return True for retry."""
+        """If exc indicates temperature not supported (param unsupported or only default allowed), cache and return True for retry."""
         msg = str(exc).lower()
-        if "temperature" in msg and ("default" in msg or "only" in msg or "does not support" in msg):
+        if "temperature" in msg and ("not supported" in msg or "default" in msg or "only" in msg):
             self._temperature_default_only.add(model)
             return True
         return False
